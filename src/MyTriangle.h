@@ -30,6 +30,7 @@ class MyTriangle
 		void CreateMemoryAllocator();
 		void CreateSurface();
 		void CreateSwapchainAndImageViews();
+		void CheckDepthFormatAndCreateDepthImage();
 
 	private:
 		GLFWwindow* m_Window = nullptr;
@@ -50,4 +51,6 @@ class MyTriangle
 		VkSwapchainKHR m_Swapchain;
 		std::vector<VkImage> m_SwapchainImages;
 		std::vector<VkImageView> m_SwapchainImageViews;
+		VkImage m_DepthImage;
+		VmaAllocation m_DepthImageAllocation;
 };

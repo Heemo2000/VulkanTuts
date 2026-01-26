@@ -63,6 +63,7 @@ void MyTriangle::InitVulkan()
 	CreateMemoryAllocator();
 	CreateSurface();
 	CreateSwapchainAndImageViews();
+	CheckDepthFormatAndCreateDepthImage();
 }
 
 void MyTriangle::SetResolution(uint32_t width, uint32_t height)
@@ -375,8 +376,75 @@ void MyTriangle::CreateSwapchainAndImageViews()
 			exit(1);
 			return;
 		}
+
+		std::cout << std::endl;
+		std::cout << "Creation of image view" << i << " successful" << std::endl;
 	}
 
+	
+
+}
+
+void MyTriangle::CheckDepthFormatAndCreateDepthImage()
+{
+	std::vector<VkFormat> depthFormatList{ VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT };
+	VkFormat depthFormat = VK_FORMAT_UNDEFINED;
+	for (VkFormat& format : depthFormatList)
+	{
+		VkFormatProperties2 formatProperties
+		{
+			.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2
+		};
+
+		vkGetPhysicalDeviceFormatProperties2(m_PhysicalDevices[m_RequiredPhyDeviceIndex], format, &formatProperties);
+		if (formatProperties.formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+		{
+			depthFormat = format;
+			break;
+		}
+	}
+
+	if (depthFormat == VK_FORMAT_UNDEFINED)
+	{
+		std::cout << "Could not get required depth format for GPU at index: " << m_RequiredPhyDeviceIndex << std::endl;
+		exit(1);
+		return;
+	}
+
+	std::cout << std::endl;
+	std::cout << "Found required depth format for GPU at index: " << m_RequiredPhyDeviceIndex << std::endl;
+
+	VkImageCreateInfo depthImageCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.imageType = VK_IMAGE_TYPE_2D,
+		.format = depthFormat,
+		.extent {.width = m_Width, .height = m_Height, .depth = 1},
+		.mipLevels = 1,
+		.arrayLayers = 1,
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+	};
+
+	VmaAllocationCreateInfo allocationCreateInfo
+	{
+		.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
+		.usage = VMA_MEMORY_USAGE_AUTO
+	};
+
+	if (vmaCreateImage(m_Allocator,
+		&depthImageCreateInfo,
+		&allocationCreateInfo,
+		&m_DepthImage,
+		&m_DepthImageAllocation,
+		nullptr) != VK_SUCCESS)
+	{
+		std::cout << "Depth image creation failed!" << std::endl;
+		exit(1);
+		return;
+	}
 
 
 }
