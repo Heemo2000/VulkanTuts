@@ -44,5 +44,13 @@ target_link_libraries(VulkanTuts PRIVATE
 		      )
 
 
+add_custom_command(TARGET VulkanTuts POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/src/assets
+            ${CMAKE_BINARY_DIR}/assets
+)
+
+
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     PROPERTY VS_STARTUP_PROJECT VulkanTuts)
+

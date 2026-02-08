@@ -3,11 +3,41 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <array>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
 #include <vma/vk_mem_alloc.h>
+
+
+#include <glm/glm.hpp>
+
+#include <tiny_obj_loader.h>
+
+struct Vertex
+{
+	glm::vec3 pos;
+	glm::vec3 normal;
+	glm::vec2 uv;
+};
+
+struct ShaderDataBuffer
+{
+	VmaAllocation allocation = VK_NULL_HANDLE;
+	VkBuffer buffer = VK_NULL_HANDLE;
+	VkDeviceAddress deviceAddress{};
+	void* mapped = nullptr;
+};
+
+struct ShaderData
+{
+	glm::mat4 projection;
+	glm::mat4 view;
+	glm::mat4 model[3];
+	glm::vec4 lightPos{ 0.0f, -10.0f, 10.0f, 0.0f };
+	uint32_t selected{1};
+};
 
 class MyTriangle
 {
@@ -31,12 +61,17 @@ class MyTriangle
 		void CreateSurface();
 		void CreateSwapchainAndImageViews();
 		void CheckDepthFormatAndCreateDepthImage();
-
+		void LoadModelRelatedDataAndShaderRelatedStuff();
+		void CreateFencesAndSemaphores();
+		void CreateCommandPoolAndCommandBuffers();
 	private:
 		GLFWwindow* m_Window = nullptr;
 		std::string m_WindowTitle;
 		uint32_t m_Width;
 		uint32_t m_Height;
+	
+	private:
+		static const uint32_t s_MaxFramesInFlight = 2;
 	
 	private:
 		VkInstance m_Instance = VK_NULL_HANDLE;
@@ -52,5 +87,15 @@ class MyTriangle
 		std::vector<VkImage> m_SwapchainImages;
 		std::vector<VkImageView> m_SwapchainImageViews;
 		VkImage m_DepthImage;
-		VmaAllocation m_DepthImageAllocation;
+		VmaAllocation m_DepthImageAllocation{ VK_NULL_HANDLE };
+		VkImageView m_DepthImageView;
+		VkBuffer m_Buffer;
+		VmaAllocation m_VertexBufferAllocation{ VK_NULL_HANDLE };
+		void* m_BufferPtr = nullptr;
+		std::array<ShaderDataBuffer, s_MaxFramesInFlight> m_ShaderDataBuffers;
+		std::array<VkCommandBuffer, s_MaxFramesInFlight> m_CommandBuffers;
+		std::array<VkFence, s_MaxFramesInFlight> m_Fences;
+		std::array<VkSemaphore, s_MaxFramesInFlight> m_PresentSemaphores;
+		std::vector<VkSemaphore> m_RenderSemaphores;
+		VkCommandPool m_CommandPool;
 };

@@ -1,4 +1,6 @@
 #include "MyTriangle.h"
+#include <filesystem>
+
 
 MyTriangle::MyTriangle(std::string windowTitle, uint32_t width, uint32_t height) : 
 			m_WindowTitle(windowTitle),
@@ -64,6 +66,9 @@ void MyTriangle::InitVulkan()
 	CreateSurface();
 	CreateSwapchainAndImageViews();
 	CheckDepthFormatAndCreateDepthImage();
+	LoadModelRelatedDataAndShaderRelatedStuff();
+	CreateFencesAndSemaphores();
+	CreateCommandPoolAndCommandBuffers();
 }
 
 void MyTriangle::SetResolution(uint32_t width, uint32_t height)
@@ -446,5 +451,261 @@ void MyTriangle::CheckDepthFormatAndCreateDepthImage()
 		return;
 	}
 
+	std::cout << std::endl;
+	std::cout << "Depth image creation successful" << std::endl;
+	
+	VkImageViewCreateInfo depthImageViewCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.image = m_DepthImage,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.format = depthFormat,
+		.subresourceRange = { .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1}
+	};
+
+	if (vkCreateImageView(m_LogicalDevice, &depthImageViewCreateInfo, nullptr, &m_DepthImageView) != VK_SUCCESS)
+	{
+		std::cout << "Depth Image View creation failed!!" << std::endl;
+		exit(1);
+		return;
+	}
+
+	std::cout << std::endl;
+	std::cout << "Depth Image view creation successful" << std::endl;
 
 }
+
+void MyTriangle::LoadModelRelatedDataAndShaderRelatedStuff()
+{
+	//std::cout << std::filesystem::current_path() << std::endl;
+	
+	tinyobj::attrib_t attrib;
+	std::vector<tinyobj::shape_t> shapes;
+	std::vector<tinyobj::material_t> materials;
+
+	std::string warn;
+	std::string error;
+	if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &error, "assets/christmas_latern.obj") != true)
+	{
+		std::cout << "Model loading failed!!" << std::endl;
+		std::cout << "Warning: " << warn << std::endl;
+		std::cout << "Error: " << error << std::endl;
+		exit(1);
+		return;
+	}
+
+	std::cout << std::endl;
+	std::cout << "Model loading successful" << std::endl;
+
+	const VkDeviceSize indexCount{ shapes[0].mesh.indices.size() };
+
+	std::vector<Vertex> vertices;
+	std::vector<uint16_t> indices;
+
+	for (auto& index: shapes[0].mesh.indices)
+	{
+		Vertex vertex
+		{
+			.pos = { attrib.vertices[index.vertex_index * 3], -attrib.vertices[index.vertex_index * 3 + 1], attrib.vertices[index.vertex_index * 3 + 2]},
+			.normal = {attrib.normals[index.normal_index * 3], -attrib.normals[index.normal_index * 3 + 1], attrib.normals[index.normal_index * 3 + 2]},
+			.uv = {attrib.texcoords[index.texcoord_index * 2], 1.0f - attrib.normals[index.texcoord_index * 2 + 1]}
+		};
+
+		vertices.push_back(vertex);
+		indices.push_back(indices.size());
+	}
+
+	VkDeviceSize vertexBufferSize{ sizeof(Vertex) * vertices.size() };
+	VkDeviceSize indexBufferSize{ sizeof(uint16_t) * indices.size() };
+
+	VkBufferCreateInfo bufferCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = vertexBufferSize + indexBufferSize,
+		.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+	};
+
+	VmaAllocationCreateInfo bufferAllocateInfo
+	{
+		.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
+				 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+				 VMA_ALLOCATION_CREATE_MAPPED_BIT,
+
+		.usage = VMA_MEMORY_USAGE_AUTO
+	};
+
+	if (vmaCreateBuffer(m_Allocator, &bufferCreateInfo, &bufferAllocateInfo, &m_Buffer, &m_VertexBufferAllocation, nullptr) != VK_SUCCESS)
+	{
+		std::cout << "Buffer creation failed!!" << std::endl;
+		exit(1);
+		return;
+	}
+
+	std::cout << std::endl;
+	std::cout << "Buffer creation successful" << std::endl;
+
+	//Now we will copy all the vertex and index data directly to VRAM.
+
+	if (vmaMapMemory(m_Allocator, m_VertexBufferAllocation, &m_BufferPtr) != VK_SUCCESS)
+	{
+		std::cout << "Mapping memory to buffer ptr failed!!" << std::endl;
+		exit(1);
+		return;
+	}
+
+
+	std::cout << std::endl;
+	std::cout << "Mapping memory to buffer successful" << std::endl;
+	memcpy(m_BufferPtr, vertices.data(), vertexBufferSize);
+	memcpy(((char*)m_BufferPtr) + vertexBufferSize, indices.data(), indexBufferSize);
+	vmaUnmapMemory(m_Allocator, m_VertexBufferAllocation);
+
+	for (uint32_t i = 0; i < s_MaxFramesInFlight; i++)
+	{
+		VkBufferCreateInfo uniformBufferCreateInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.size = sizeof(ShaderData),
+			.usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+		};
+
+		VmaAllocationCreateInfo uniformBufferAllocateCreateInfo
+		{
+			.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
+					 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | 
+				     VMA_ALLOCATION_CREATE_MAPPED_BIT,
+
+			.usage = VMA_MEMORY_USAGE_AUTO
+		};
+
+		if (vmaCreateBuffer(m_Allocator,
+			&uniformBufferCreateInfo,
+			&uniformBufferAllocateCreateInfo,
+			&m_ShaderDataBuffers[i].buffer,
+			&m_ShaderDataBuffers[i].allocation,
+			nullptr) != VK_SUCCESS)
+		{
+			std::cout << "Initializing buffer and allocation for shader data buffer at index " << i << " failed!!" << std::endl;
+			exit(1);
+			return;
+		}
+
+		std::cout << std::endl;
+		std::cout << "Initializing buffer and allocation for shader data buffer at index" << i << " successful" << std::endl;
+
+		if (vmaMapMemory(m_Allocator,
+			m_ShaderDataBuffers[i].allocation,
+			&m_ShaderDataBuffers[i].mapped) != VK_SUCCESS)
+		{
+			std::cout << "Mapping allocation data to VRAM at index " << i << " failed!!" << std::endl;
+			exit(1);
+			return;
+		}
+
+		std::cout << std::endl;
+		std::cout << "Mapping allocation date to VRAM at index" << i << " successful" << std::endl;
+		
+		VkBufferDeviceAddressInfo uniformBufferDeviceAddressAccessInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+			.buffer = m_ShaderDataBuffers[i].buffer
+		};
+
+		m_ShaderDataBuffers[i].deviceAddress = vkGetBufferDeviceAddress(m_LogicalDevice, &uniformBufferDeviceAddressAccessInfo);
+	}
+
+
+}
+
+void MyTriangle::CreateFencesAndSemaphores()
+{
+	VkSemaphoreCreateInfo semaphoreCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+	};
+
+	VkFenceCreateInfo fenceCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+		.flags = VK_FENCE_CREATE_SIGNALED_BIT
+	};
+
+	for (uint32_t i = 0; i < s_MaxFramesInFlight; i++)
+	{
+		if (vkCreateFence(m_LogicalDevice, &fenceCreateInfo, nullptr, &m_Fences[i]) != VK_SUCCESS)
+		{
+			std::cout << "Fence creation for index: " << i << " failed!!" << std::endl;
+			exit(1);
+			return;
+		}
+
+		std::cout << std::endl;
+		std::cout << "Fence creation for index: " << i << " successful" << std::endl;
+
+		if (vkCreateSemaphore(m_LogicalDevice, &semaphoreCreateInfo, nullptr, &m_PresentSemaphores[i]) != VK_SUCCESS)
+		{
+			std::cout << "Present Semaphore creation for index: " << i << " failed!!" << std::endl;
+			exit(1);
+			return;
+		}
+
+		std::cout << std::endl;
+		std::cout << "Present Semaphore creation for index: " << i << " successful." << std::endl;
+	}
+
+	m_RenderSemaphores.resize(m_SwapchainImages.size());
+	
+	for (uint32_t i = 0; i < m_SwapchainImages.size(); i++)
+	{
+		if (vkCreateSemaphore(m_LogicalDevice, &semaphoreCreateInfo, nullptr, &m_RenderSemaphores[i]) != VK_SUCCESS)
+		{
+			std::cout << "Render Semaphore creation for index: " << i << " failed!!" << std::endl;
+			exit(1);
+			return;
+		}
+
+		std::cout << std::endl;
+		std::cout << "Render Semaphore creation for index: " << i << " successful." << std::endl;
+	}
+}
+
+void MyTriangle::CreateCommandPoolAndCommandBuffers()
+{
+	VkCommandPoolCreateInfo commandPoolCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+		.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+		.queueFamilyIndex = m_QueueFamilyIndex
+	};
+
+	if (vkCreateCommandPool(m_LogicalDevice, &commandPoolCreateInfo, nullptr, &m_CommandPool) != VK_SUCCESS)
+	{
+		std::cout << "Command pool creation failed!!" << std::endl;
+		exit(1);
+		return;
+	}
+
+	std::cout << std::endl;
+	std::cout << "Command pool creation successful" << std::endl;
+
+	VkCommandBufferAllocateInfo commandBufferAllocateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		.commandPool = m_CommandPool,
+		.commandBufferCount = s_MaxFramesInFlight
+	};
+
+	if (vkAllocateCommandBuffers(m_LogicalDevice, &commandBufferAllocateInfo, m_CommandBuffers.data()) != VK_SUCCESS)
+	{
+		std::cout << "Command Buffers creation failed!!" << std::endl;
+		exit(1);
+		return;
+	}
+
+	std::cout << std::endl;
+	std::cout << "Command buffers creation successful" << std::endl;
+
+
+}
+
+
