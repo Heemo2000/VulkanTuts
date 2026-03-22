@@ -69,6 +69,7 @@ void MyTriangle::InitVulkan()
 	LoadModelRelatedDataAndShaderRelatedStuff();
 	CreateFencesAndSemaphores();
 	CreateCommandPoolAndCommandBuffers();
+	LoadTexture();
 }
 
 void MyTriangle::SetResolution(uint32_t width, uint32_t height)
@@ -77,6 +78,20 @@ void MyTriangle::SetResolution(uint32_t width, uint32_t height)
 	m_Height = height;
 
 	std::cout << "Resolution: " << m_Width << " X " << m_Height << std::endl;
+}
+
+bool MyTriangle::Check(VkResult condition, std::string trueStatus, std::string falseStatus)
+{
+	if (condition != VK_SUCCESS)
+	{
+		std::cout << falseStatus << std::endl;
+		exit(1);
+		return false;
+	}
+
+	std::cout << std::endl;
+	std::cout << trueStatus << std::endl;
+	return true;
 }
 
 void MyTriangle::CreateInstance()
@@ -98,38 +113,20 @@ void MyTriangle::CreateInstance()
 		.ppEnabledExtensionNames = instanceExtensions
 	};
 
-	if (vkCreateInstance(&instanceCreateInfo, nullptr, &m_Instance) != VK_SUCCESS)
-	{
-		std::cout << "Failed to create instance!!" << std::endl;
-		exit(1);
-		return;
-	}
-	else
-	{
-		std::cout << "Instance creation successful" << std::endl;
-	}
+
+
+	if (Check(vkCreateInstance(&instanceCreateInfo, nullptr, &m_Instance), "Instance creation successful", "Failed to create instance!!"));
 }
 
 void MyTriangle::FindAndSelectPhysicalDevice()
 {
 	uint32_t deviceCount = 0;
-	if (vkEnumeratePhysicalDevices(m_Instance, &deviceCount, nullptr) != VK_SUCCESS)
-	{
-		std::cout << "No GPU Device Found! Count: 0" << std::endl;
-		exit(1);
-		return;
-	}
+	Check(vkEnumeratePhysicalDevices(m_Instance, &deviceCount, nullptr), "Found some GPU Devices ", "No GPU Device Found! Count: 0");
 
 	m_PhysicalDevices.resize(deviceCount);
 
-	if (vkEnumeratePhysicalDevices(m_Instance, &deviceCount, m_PhysicalDevices.data()) != VK_SUCCESS)
-	{
-		std::cout << "No GPU Device Found!" << std::endl;
-		exit(0);
-		return;
-	}
-
-	std::cout  << std::endl << "Found some GPU Devices: " << std::endl;
+	Check(vkEnumeratePhysicalDevices(m_Instance, &deviceCount, m_PhysicalDevices.data()), "Found some GPU Devices: ", "No GPU Device Found! Count: 0");
+	
 	for (int i = 0; i < deviceCount; i++)
 	{
 		VkPhysicalDeviceProperties2 deviceProperties{
@@ -224,27 +221,14 @@ void MyTriangle::GetQueue()
 		.pEnabledFeatures = &enabledVk10Features
 	};
 
-	if (vkCreateDevice(m_PhysicalDevices[m_RequiredPhyDeviceIndex], 
-					   &deviceCreateInfo, 
-					   nullptr, 
-					   &m_LogicalDevice) != 
-					   VK_SUCCESS)
-	{
-		std::cout << "Failed to create Logical Device!" << std::endl;
-		exit(1);
-		return;
-	}
-	else
-	{
-		std::cout << std::endl;
-		std::cout << "Logical Device Creation successful" << std::endl;
-	}
+	Check(vkCreateDevice(m_PhysicalDevices[m_RequiredPhyDeviceIndex],
+		&deviceCreateInfo,
+		nullptr,
+		&m_LogicalDevice),
+		"Logical Device Creation successful",
+		"Failed to create Logical Device!");
 
 	vkGetDeviceQueue(m_LogicalDevice, m_QueueFamilyIndex, 0, &m_Queue);
-
-
-
-
 }
 
 void MyTriangle::CreateMemoryAllocator()
@@ -265,47 +249,21 @@ void MyTriangle::CreateMemoryAllocator()
 		.instance = m_Instance
 	};
 
-	if (vmaCreateAllocator(&allocatorCreateInfo, &m_Allocator) != VK_SUCCESS)
-	{
-		std::cout << "Failed to create memory allocator!" << std::endl;
-		exit(1);
-		return;
-	}
-	else
-	{
-		std::cout << std::endl;
-		std::cout << "Memory allocator creation successful" << std::endl;
-	}
+	Check(vmaCreateAllocator(&allocatorCreateInfo, &m_Allocator), 
+							 "Memory allocator creation successful", 
+						     "Failed to create memory allocator!");
 }
 
 void MyTriangle::CreateSurface()
 {
-	if (glfwCreateWindowSurface(m_Instance, m_Window, nullptr, &m_Surface) != VK_SUCCESS)
-	{
-		std::cout << "Surface creation failed!" << std::endl;
-		exit(1);
-		return;
-	}
-	else
-	{
-		std::cout << std::endl;
-		std::cout << "Surface creation successful" << std::endl;
-	}
-
-	if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-		m_PhysicalDevices[m_RequiredPhyDeviceIndex], 
-		m_Surface, 
-		&m_SurfaceCapabilities) != VK_SUCCESS)
-	{
-		std::cout << "Failed to get physical device surface capabilities info!" << std::endl;
-		exit(1);
-		return;
-	}
-	else
-	{
-		std::cout << std::endl;
-		std::cout << "Getting Physical Device Surface Capabilities Info successful" << std::endl;
-	}
+	Check(glfwCreateWindowSurface(m_Instance, m_Window, nullptr, &m_Surface), "Surface creation successful", "Surface creation failed!");
+	
+	Check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+		m_PhysicalDevices[m_RequiredPhyDeviceIndex],
+		m_Surface,
+		&m_SurfaceCapabilities),
+		"Getting Physical Device Surface Capabilities Info successful",
+		"Failed to get physical device surface capabilities info!");
 }
 
 void MyTriangle::CreateSwapchainAndImageViews()
@@ -326,42 +284,15 @@ void MyTriangle::CreateSwapchainAndImageViews()
 		.presentMode = VK_PRESENT_MODE_FIFO_KHR
 	};
 
-	if (vkCreateSwapchainKHR(m_LogicalDevice, &swapchainCreateInfo, nullptr, &m_Swapchain) != VK_SUCCESS)
-	{
-		std::cout << "Swapchain creation failed!" << std::endl;
-		exit(1);
-		return;
-	}
-	else
-	{
-		std::cout << std::endl;
-		std::cout << "Swapchain creation successful" << std::endl;
-	}
+	Check(vkCreateSwapchainKHR(m_LogicalDevice, &swapchainCreateInfo, nullptr, &m_Swapchain), "Swapchain creation successful", "Swapchain creation failed!");
 
 	uint32_t imagesCount = 0;
-	if (vkGetSwapchainImagesKHR(m_LogicalDevice, m_Swapchain, &imagesCount, nullptr) != VK_SUCCESS)
-	{
-		std::cout << "Getting swapchain images count failed!" << std::endl;
-		exit(1);
-		return;
-	}
-
-	std::cout << std::endl;
-	std::cout << "Getting swapchain images count successful" << std::endl;
-
+	Check(vkGetSwapchainImagesKHR(m_LogicalDevice, m_Swapchain, &imagesCount, nullptr), "Getting swapchain images count successful", "Getting swapchain images count failed!");
+	
 	m_SwapchainImages.resize(imagesCount);
 
-	if (vkGetSwapchainImagesKHR(m_LogicalDevice, m_Swapchain, &imagesCount, m_SwapchainImages.data()) != VK_SUCCESS)
-	{
-		std::cout << "Getting swapchain images failed!" << std::endl;
-		exit(1);
-		return;
-	}
-
-
-	std::cout << std::endl;
-	std::cout << "Getting swapchain images successful" << std::endl;
-
+	Check(vkGetSwapchainImagesKHR(m_LogicalDevice, m_Swapchain, &imagesCount, m_SwapchainImages.data()), "Getting swapchain images successful", "Getting swapchain images failed!");
+	
 	m_SwapchainImageViews.resize(imagesCount);
 
 	for (int i = 0; i < imagesCount; i++)
@@ -375,15 +306,9 @@ void MyTriangle::CreateSwapchainAndImageViews()
 			.subresourceRange { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
 		};
 
-		if (vkCreateImageView(m_LogicalDevice, &imageViewCreateInfo, nullptr, &m_SwapchainImageViews[i]) != VK_SUCCESS)
-		{
-			std::cout << "Creation of image view " << i << " failed !!" << std::endl;
-			exit(1);
-			return;
-		}
-
-		std::cout << std::endl;
-		std::cout << "Creation of image view" << i << " successful" << std::endl;
+		Check(vkCreateImageView(m_LogicalDevice, &imageViewCreateInfo, nullptr, &m_SwapchainImageViews[i]),
+								"Creation of image view" + std::to_string(i) + " successful",
+								"Creation of image view " + std::to_string(i) + " failed !!");
 	}
 
 	
@@ -439,20 +364,15 @@ void MyTriangle::CheckDepthFormatAndCreateDepthImage()
 		.usage = VMA_MEMORY_USAGE_AUTO
 	};
 
-	if (vmaCreateImage(m_Allocator,
+
+	Check(vmaCreateImage(m_Allocator,
 		&depthImageCreateInfo,
 		&allocationCreateInfo,
 		&m_DepthImage,
 		&m_DepthImageAllocation,
-		nullptr) != VK_SUCCESS)
-	{
-		std::cout << "Depth image creation failed!" << std::endl;
-		exit(1);
-		return;
-	}
-
-	std::cout << std::endl;
-	std::cout << "Depth image creation successful" << std::endl;
+		nullptr),
+		"Depth image creation successful",
+		"Depth image creation failed!");
 	
 	VkImageViewCreateInfo depthImageViewCreateInfo
 	{
@@ -463,16 +383,10 @@ void MyTriangle::CheckDepthFormatAndCreateDepthImage()
 		.subresourceRange = { .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1}
 	};
 
-	if (vkCreateImageView(m_LogicalDevice, &depthImageViewCreateInfo, nullptr, &m_DepthImageView) != VK_SUCCESS)
-	{
-		std::cout << "Depth Image View creation failed!!" << std::endl;
-		exit(1);
-		return;
-	}
-
-	std::cout << std::endl;
-	std::cout << "Depth Image view creation successful" << std::endl;
-
+	
+	Check(vkCreateImageView(m_LogicalDevice, &depthImageViewCreateInfo, nullptr, &m_DepthImageView),
+		"Depth Image view creation successful",
+		"Depth Image View creation failed!!");
 }
 
 void MyTriangle::LoadModelRelatedDataAndShaderRelatedStuff()
@@ -534,85 +448,66 @@ void MyTriangle::LoadModelRelatedDataAndShaderRelatedStuff()
 		.usage = VMA_MEMORY_USAGE_AUTO
 	};
 
-	if (vmaCreateBuffer(m_Allocator, &bufferCreateInfo, &bufferAllocateInfo, &m_Buffer, &m_VertexBufferAllocation, nullptr) != VK_SUCCESS)
-	{
-		std::cout << "Buffer creation failed!!" << std::endl;
-		exit(1);
-		return;
-	}
-
-	std::cout << std::endl;
-	std::cout << "Buffer creation successful" << std::endl;
+	Check(vmaCreateBuffer(m_Allocator, &bufferCreateInfo, &bufferAllocateInfo, &m_Buffer, &m_VertexBufferAllocation, nullptr), 
+						  "Buffer creation successful", 
+						  "Buffer creation failed!!");
 
 	//Now we will copy all the vertex and index data directly to VRAM.
 
-	if (vmaMapMemory(m_Allocator, m_VertexBufferAllocation, &m_BufferPtr) != VK_SUCCESS)
+	if (Check(vmaMapMemory(m_Allocator, m_VertexBufferAllocation, &m_BufferPtr),
+		"Mapping memory to buffer successful",
+		"Mapping memory to buffer ptr failed!!"))
 	{
-		std::cout << "Mapping memory to buffer ptr failed!!" << std::endl;
-		exit(1);
-		return;
+		memcpy(m_BufferPtr, vertices.data(), vertexBufferSize);
+		memcpy(((char*)m_BufferPtr) + vertexBufferSize, indices.data(), indexBufferSize);
+		vmaUnmapMemory(m_Allocator, m_VertexBufferAllocation);
+
+		for (uint32_t i = 0; i < s_MaxFramesInFlight; i++)
+		{
+			VkBufferCreateInfo uniformBufferCreateInfo
+			{
+				.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+				.size = sizeof(ShaderData),
+				.usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+			};
+
+			VmaAllocationCreateInfo uniformBufferAllocateCreateInfo
+			{
+				.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+						 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+						 VMA_ALLOCATION_CREATE_MAPPED_BIT,
+
+				.usage = VMA_MEMORY_USAGE_AUTO
+			};
+
+			Check(vmaCreateBuffer(m_Allocator,
+				&uniformBufferCreateInfo,
+				&uniformBufferAllocateCreateInfo,
+				&m_ShaderDataBuffers[i].buffer,
+				&m_ShaderDataBuffers[i].allocation,
+				nullptr),
+				"Initializing buffer and allocation for shader data buffer at index" + std::to_string(i) + " successful",
+				"Initializing buffer and allocation for shader data buffer at index " + std::to_string(i) + " failed!!");
+
+			if (Check(vmaMapMemory(m_Allocator,
+				m_ShaderDataBuffers[i].allocation,
+				&m_ShaderDataBuffers[i].mapped),
+				"Mapping allocation date to VRAM at index" + std::to_string(i) + " successful",
+				"Mapping allocation data to VRAM at index " + std::to_string(i) + " failed!!"))
+			{
+				VkBufferDeviceAddressInfo uniformBufferDeviceAddressAccessInfo
+				{
+					.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+					.buffer = m_ShaderDataBuffers[i].buffer
+				};
+
+				m_ShaderDataBuffers[i].deviceAddress = vkGetBufferDeviceAddress(m_LogicalDevice, &uniformBufferDeviceAddressAccessInfo);
+			}
+		}
 	}
 
 
-	std::cout << std::endl;
-	std::cout << "Mapping memory to buffer successful" << std::endl;
-	memcpy(m_BufferPtr, vertices.data(), vertexBufferSize);
-	memcpy(((char*)m_BufferPtr) + vertexBufferSize, indices.data(), indexBufferSize);
-	vmaUnmapMemory(m_Allocator, m_VertexBufferAllocation);
-
-	for (uint32_t i = 0; i < s_MaxFramesInFlight; i++)
-	{
-		VkBufferCreateInfo uniformBufferCreateInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			.size = sizeof(ShaderData),
-			.usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-		};
-
-		VmaAllocationCreateInfo uniformBufferAllocateCreateInfo
-		{
-			.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
-					 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | 
-				     VMA_ALLOCATION_CREATE_MAPPED_BIT,
-
-			.usage = VMA_MEMORY_USAGE_AUTO
-		};
-
-		if (vmaCreateBuffer(m_Allocator,
-			&uniformBufferCreateInfo,
-			&uniformBufferAllocateCreateInfo,
-			&m_ShaderDataBuffers[i].buffer,
-			&m_ShaderDataBuffers[i].allocation,
-			nullptr) != VK_SUCCESS)
-		{
-			std::cout << "Initializing buffer and allocation for shader data buffer at index " << i << " failed!!" << std::endl;
-			exit(1);
-			return;
-		}
-
-		std::cout << std::endl;
-		std::cout << "Initializing buffer and allocation for shader data buffer at index" << i << " successful" << std::endl;
-
-		if (vmaMapMemory(m_Allocator,
-			m_ShaderDataBuffers[i].allocation,
-			&m_ShaderDataBuffers[i].mapped) != VK_SUCCESS)
-		{
-			std::cout << "Mapping allocation data to VRAM at index " << i << " failed!!" << std::endl;
-			exit(1);
-			return;
-		}
-
-		std::cout << std::endl;
-		std::cout << "Mapping allocation date to VRAM at index" << i << " successful" << std::endl;
-		
-		VkBufferDeviceAddressInfo uniformBufferDeviceAddressAccessInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-			.buffer = m_ShaderDataBuffers[i].buffer
-		};
-
-		m_ShaderDataBuffers[i].deviceAddress = vkGetBufferDeviceAddress(m_LogicalDevice, &uniformBufferDeviceAddressAccessInfo);
-	}
+	
 
 
 }
@@ -632,40 +527,22 @@ void MyTriangle::CreateFencesAndSemaphores()
 
 	for (uint32_t i = 0; i < s_MaxFramesInFlight; i++)
 	{
-		if (vkCreateFence(m_LogicalDevice, &fenceCreateInfo, nullptr, &m_Fences[i]) != VK_SUCCESS)
-		{
-			std::cout << "Fence creation for index: " << i << " failed!!" << std::endl;
-			exit(1);
-			return;
-		}
+		Check(vkCreateFence(m_LogicalDevice, &fenceCreateInfo, nullptr, &m_Fences[i]),
+			"Fence creation for index: " + std::to_string(i) + " successful",
+			"Fence creation for index: " + std::to_string(i) + " failed!!");
 
-		std::cout << std::endl;
-		std::cout << "Fence creation for index: " << i << " successful" << std::endl;
-
-		if (vkCreateSemaphore(m_LogicalDevice, &semaphoreCreateInfo, nullptr, &m_PresentSemaphores[i]) != VK_SUCCESS)
-		{
-			std::cout << "Present Semaphore creation for index: " << i << " failed!!" << std::endl;
-			exit(1);
-			return;
-		}
-
-		std::cout << std::endl;
-		std::cout << "Present Semaphore creation for index: " << i << " successful." << std::endl;
+		Check(vkCreateSemaphore(m_LogicalDevice, &semaphoreCreateInfo, nullptr, &m_PresentSemaphores[i]),
+			"Present Semaphore creation for index: " + std::to_string(i) + " successful",
+			"Present Semaphore creation for index: " + std::to_string(i) + " failed!!");
 	}
 
 	m_RenderSemaphores.resize(m_SwapchainImages.size());
 	
 	for (uint32_t i = 0; i < m_SwapchainImages.size(); i++)
 	{
-		if (vkCreateSemaphore(m_LogicalDevice, &semaphoreCreateInfo, nullptr, &m_RenderSemaphores[i]) != VK_SUCCESS)
-		{
-			std::cout << "Render Semaphore creation for index: " << i << " failed!!" << std::endl;
-			exit(1);
-			return;
-		}
-
-		std::cout << std::endl;
-		std::cout << "Render Semaphore creation for index: " << i << " successful." << std::endl;
+		Check(vkCreateSemaphore(m_LogicalDevice, &semaphoreCreateInfo, nullptr, &m_RenderSemaphores[i]),
+			"Render Semaphore creation for index: " + std::to_string(i) + " successful.",
+			"Render Semaphore creation for index: " + std::to_string(i) + " failed!!");
 	}
 }
 
@@ -678,16 +555,11 @@ void MyTriangle::CreateCommandPoolAndCommandBuffers()
 		.queueFamilyIndex = m_QueueFamilyIndex
 	};
 
-	if (vkCreateCommandPool(m_LogicalDevice, &commandPoolCreateInfo, nullptr, &m_CommandPool) != VK_SUCCESS)
-	{
-		std::cout << "Command pool creation failed!!" << std::endl;
-		exit(1);
-		return;
-	}
+	Check(vkCreateCommandPool(m_LogicalDevice, &commandPoolCreateInfo, nullptr, &m_CommandPool),
+		"Command pool creation successful",
+		"Command pool creation failed!!");
 
-	std::cout << std::endl;
-	std::cout << "Command pool creation successful" << std::endl;
-
+	
 	VkCommandBufferAllocateInfo commandBufferAllocateInfo
 	{
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -695,16 +567,114 @@ void MyTriangle::CreateCommandPoolAndCommandBuffers()
 		.commandBufferCount = s_MaxFramesInFlight
 	};
 
-	if (vkAllocateCommandBuffers(m_LogicalDevice, &commandBufferAllocateInfo, m_CommandBuffers.data()) != VK_SUCCESS)
+	Check(vkAllocateCommandBuffers(m_LogicalDevice, &commandBufferAllocateInfo, m_CommandBuffers.data()),
+		"Command buffers creation successful",
+		"Command Buffers creation failed!!");
+}
+
+void MyTriangle::LoadTexture()
+{
+	ktxTexture* texture{ nullptr };
+	std::string fileName = "assets/christmas_lantern_tex_ktx.ktx";
+	
+	
+	ktx_error_code_e errorCode = ktxTexture_CreateFromNamedFile(
+		fileName.c_str(),
+		KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
+		&texture);
+
+	if (errorCode != KTX_SUCCESS)
 	{
-		std::cout << "Command Buffers creation failed!!" << std::endl;
+		std::cout << "Failed to create texture from file!" << std::endl;
 		exit(1);
 		return;
 	}
 
 	std::cout << std::endl;
-	std::cout << "Command buffers creation successful" << std::endl;
+	std::cout << "Creation of texture from file successful." << std::endl;
 
+	VkImageCreateInfo textureImageCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.imageType = VK_IMAGE_TYPE_2D,
+		.format = ktxTexture_GetVkFormat(texture),
+		.extent = { .width = texture->baseWidth, .height = texture->baseHeight, .depth = 1},
+		.mipLevels = texture->numLevels,
+		.arrayLayers = 1,
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+	};
+
+	VmaAllocationCreateInfo texImageAllocationCreateInfo{ .usage = VMA_MEMORY_USAGE_AUTO };
+	
+	Check(vmaCreateImage(m_Allocator,
+		&textureImageCreateInfo,
+		&texImageAllocationCreateInfo,
+		&m_Textures[0].image,
+		&m_Textures[0].allocation,
+		nullptr),
+		"Allocation of texture image is successful.",
+		"Failed to create allocation for texture image!");
+
+	VkImageViewCreateInfo texImageViewCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.image = m_Textures[0].image,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.format = textureImageCreateInfo.format,
+		.subresourceRange = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = texture->numLevels, .layerCount = 1}
+	};
+
+	Check(vkCreateImageView(m_LogicalDevice, &texImageViewCreateInfo, nullptr, &m_Textures[0].view),
+		"Creation of texture image view successful",
+		"Failed to create texture image view!");
+
+	VkBuffer imgSrcBuffer{};
+	VmaAllocation imgSrcAllocation{};
+
+	VkBufferCreateInfo imgSrcBufferCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = (uint32_t)texture->dataSize,
+		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+	};
+
+	VmaAllocationCreateInfo imgSrcAllocCreateInfo
+	{
+		.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+		.usage = VMA_MEMORY_USAGE_AUTO
+	};
+
+	VmaAllocationInfo imgSrcAllocInfo{};
+
+	Check(vmaCreateBuffer(m_Allocator, &imgSrcBufferCreateInfo, &imgSrcAllocCreateInfo, &imgSrcBuffer, &imgSrcAllocation, &imgSrcAllocInfo),
+		"Temporary image buffer creation successful",
+		"Temporary image buffer creation failed!");
+
+	memcpy(imgSrcAllocInfo.pMappedData, texture->pData, texture->dataSize);
+
+	VkFenceCreateInfo fenceOneTimeCreateInfo{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+	VkFence fenceOneTime{};
+	
+	Check(vkCreateFence(m_LogicalDevice, &fenceOneTimeCreateInfo, nullptr, &fenceOneTime),
+		"Creation of temporary fence successful", "Creation of temporary fence failed!!");
+
+	VkCommandBuffer tempCommandBuffer{};
+	VkCommandBufferAllocateInfo tempCommandBufferAllocateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		.commandPool = m_CommandPool,
+		.commandBufferCount = 1
+	};
+
+	Check(vkAllocateCommandBuffers(m_LogicalDevice, &tempCommandBufferAllocateInfo, &tempCommandBuffer),
+		"Creation of temporary command buffer successful.",
+		"Creation of temporary command buffer failed!");
+
+	//Record the commands required to get image to its destination.
+	
 
 }
 

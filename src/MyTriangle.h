@@ -15,6 +15,9 @@
 
 #include <tiny_obj_loader.h>
 
+#include <ktx.h>
+#include <ktxvulkan.h>
+
 struct Vertex
 {
 	glm::vec3 pos;
@@ -39,6 +42,14 @@ struct ShaderData
 	uint32_t selected{1};
 };
 
+struct Texture
+{
+	VmaAllocation allocation{ VK_NULL_HANDLE };
+	VkImage image{ VK_NULL_HANDLE };
+	VkImageView view{ VK_NULL_HANDLE };
+	VkSampler sampler{ VK_NULL_HANDLE };
+};
+
 class MyTriangle
 {
 	public:
@@ -52,6 +63,7 @@ class MyTriangle
 
 	private:
 		void SetResolution(uint32_t width, uint32_t height);
+		bool Check(VkResult condition, std::string trueStatus, std::string falseStatus);
 
 	private:
 		void CreateInstance();
@@ -64,6 +76,7 @@ class MyTriangle
 		void LoadModelRelatedDataAndShaderRelatedStuff();
 		void CreateFencesAndSemaphores();
 		void CreateCommandPoolAndCommandBuffers();
+		void LoadTexture();
 	private:
 		GLFWwindow* m_Window = nullptr;
 		std::string m_WindowTitle;
@@ -98,4 +111,5 @@ class MyTriangle
 		std::array<VkSemaphore, s_MaxFramesInFlight> m_PresentSemaphores;
 		std::vector<VkSemaphore> m_RenderSemaphores;
 		VkCommandPool m_CommandPool;
+		std::array<Texture, 1> m_Textures{};
 };
