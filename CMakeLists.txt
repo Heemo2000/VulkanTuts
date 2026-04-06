@@ -27,8 +27,16 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src"
 add_subdirectory(third-party/glfw)
 add_subdirectory(third-party/glm)
 add_subdirectory(third-party/tinyobjloader)
-add_subdirectory(third-party/volk)
 add_subdirectory(third-party/VulkanMemoryAllocator)
+
+set(SLANG_ROOT "${CMAKE_SOURCE_DIR}/third-party/slang")
+
+add_library(slang SHARED IMPORTED)
+
+set_target_properties(slang PROPERTIES
+                      IMPORTED_LOCATION "${SLANG_ROOT}/bin/slang.dll"
+                      IMPORTED_IMPLIB "${SLANG_ROOT}/lib/slang.lib"
+                      INTERFACE_INCLUDE_DIRECTORIES "${SLANG_ROOT}/include")
 
 
 add_executable(VulkanTuts ${VULKAN_TUTS_SOURCE_FILES})
@@ -38,16 +46,23 @@ target_link_libraries(VulkanTuts PRIVATE
 			glm::glm
 			KTX::ktx
 			tinyobjloader
-			volk_headers
 			GPUOpen::VulkanMemoryAllocator
+            slang
 			Vulkan::Vulkan
 		      )
 
 
 add_custom_command(TARGET VulkanTuts POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E echo "Copying assets..."
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/src/assets
-            ${CMAKE_BINARY_DIR}/assets
+            "${CMAKE_SOURCE_DIR}/src/assets"
+            "$<TARGET_FILE_DIR:VulkanTuts>/assets"
+
+    COMMAND ${CMAKE_COMMAND} -E echo "Copying slang.dll..."
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${SLANG_ROOT}/bin/slang.dll"
+            "${SLANG_ROOT}/bin/slang-compiler.dll"
+            "$<TARGET_FILE_DIR:VulkanTuts>"
 )
 
 

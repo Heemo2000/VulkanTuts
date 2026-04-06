@@ -1,6 +1,8 @@
 #include "MyTriangle.h"
 #include <filesystem>
-
+#include <stddef.h>
+#include <slang.h>
+#include <slang-com-ptr.h>
 
 MyTriangle::MyTriangle(std::string windowTitle, uint32_t width, uint32_t height) : 
 			m_WindowTitle(windowTitle),
@@ -70,6 +72,8 @@ void MyTriangle::InitVulkan()
 	CreateFencesAndSemaphores();
 	CreateCommandPoolAndCommandBuffers();
 	LoadTexture();
+	LoadShaders();
+	SetupGraphicsPipeline();
 }
 
 void MyTriangle::SetResolution(uint32_t width, uint32_t height)
@@ -268,13 +272,13 @@ void MyTriangle::CreateSurface()
 
 void MyTriangle::CreateSwapchainAndImageViews()
 {
-	const VkFormat imageFormat{ VK_FORMAT_B8G8R8A8_SRGB };
+	m_ImageFormat =  VK_FORMAT_B8G8R8A8_SRGB;
 	VkSwapchainCreateInfoKHR swapchainCreateInfo
 	{
 		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
 		.surface = m_Surface,
 		.minImageCount = m_SurfaceCapabilities.minImageCount,
-		.imageFormat = imageFormat,
+		.imageFormat = m_ImageFormat,
 		.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
 		.imageExtent {.width = m_SurfaceCapabilities.currentExtent.width, .height = m_SurfaceCapabilities.currentExtent.height},
 		.imageArrayLayers = 1,
@@ -302,7 +306,7 @@ void MyTriangle::CreateSwapchainAndImageViews()
 			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 			.image = m_SwapchainImages[i],
 			.viewType = VK_IMAGE_VIEW_TYPE_2D,
-			.format = imageFormat,
+			.format = m_ImageFormat,
 			.subresourceRange { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
 		};
 
@@ -318,7 +322,7 @@ void MyTriangle::CreateSwapchainAndImageViews()
 void MyTriangle::CheckDepthFormatAndCreateDepthImage()
 {
 	std::vector<VkFormat> depthFormatList{ VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT };
-	VkFormat depthFormat = VK_FORMAT_UNDEFINED;
+	m_DepthFormat = VK_FORMAT_UNDEFINED;
 	for (VkFormat& format : depthFormatList)
 	{
 		VkFormatProperties2 formatProperties
@@ -329,12 +333,12 @@ void MyTriangle::CheckDepthFormatAndCreateDepthImage()
 		vkGetPhysicalDeviceFormatProperties2(m_PhysicalDevices[m_RequiredPhyDeviceIndex], format, &formatProperties);
 		if (formatProperties.formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
 		{
-			depthFormat = format;
+			m_DepthFormat = format;
 			break;
 		}
 	}
 
-	if (depthFormat == VK_FORMAT_UNDEFINED)
+	if (m_DepthFormat == VK_FORMAT_UNDEFINED)
 	{
 		std::cout << "Could not get required depth format for GPU at index: " << m_RequiredPhyDeviceIndex << std::endl;
 		exit(1);
@@ -348,7 +352,7 @@ void MyTriangle::CheckDepthFormatAndCreateDepthImage()
 	{
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		.imageType = VK_IMAGE_TYPE_2D,
-		.format = depthFormat,
+		.format = m_DepthFormat,
 		.extent {.width = m_Width, .height = m_Height, .depth = 1},
 		.mipLevels = 1,
 		.arrayLayers = 1,
@@ -379,7 +383,7 @@ void MyTriangle::CheckDepthFormatAndCreateDepthImage()
 		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 		.image = m_DepthImage,
 		.viewType = VK_IMAGE_VIEW_TYPE_2D,
-		.format = depthFormat,
+		.format = m_DepthFormat,
 		.subresourceRange = { .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1}
 	};
 
@@ -391,7 +395,7 @@ void MyTriangle::CheckDepthFormatAndCreateDepthImage()
 
 void MyTriangle::LoadModelRelatedDataAndShaderRelatedStuff()
 {
-	//std::cout << std::filesystem::current_path() << std::endl;
+	std::cout << std::filesystem::current_path() << std::endl;
 	
 	tinyobj::attrib_t attrib;
 	std::vector<tinyobj::shape_t> shapes;
@@ -399,7 +403,7 @@ void MyTriangle::LoadModelRelatedDataAndShaderRelatedStuff()
 
 	std::string warn;
 	std::string error;
-	if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &error, "assets/christmas_latern.obj") != true)
+	if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &error, "bin/Debug/assets/christmas_latern.obj") != true)
 	{
 		std::cout << "Model loading failed!!" << std::endl;
 		std::cout << "Warning: " << warn << std::endl;
@@ -575,7 +579,7 @@ void MyTriangle::CreateCommandPoolAndCommandBuffers()
 void MyTriangle::LoadTexture()
 {
 	ktxTexture* texture{ nullptr };
-	std::string fileName = "assets/christmas_lantern_tex_ktx.ktx";
+	std::string fileName = "bin/Debug/assets/christmas_lantern_tex_ktx.ktx";
 	
 	
 	ktx_error_code_e errorCode = ktxTexture_CreateFromNamedFile(
@@ -675,7 +679,365 @@ void MyTriangle::LoadTexture()
 
 	//Record the commands required to get image to its destination.
 	
+	VkCommandBufferBeginInfo tempCommandBufferBeginInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+	};
 
+	Check(vkBeginCommandBuffer(tempCommandBuffer, &tempCommandBufferBeginInfo), "Command Buffer recording started", "Command Buffer recording failed");
+
+	VkImageMemoryBarrier2 barrierTexImage
+	{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_2_NONE,
+		.srcAccessMask = VK_ACCESS_2_NONE,
+		.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.image = m_Textures[0].image,
+		.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = texture->numLevels, .layerCount = 1}
+	};
+
+	VkDependencyInfo barrierTexInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.imageMemoryBarrierCount = 1,
+		.pImageMemoryBarriers = &barrierTexImage
+	};
+
+	vkCmdPipelineBarrier2(tempCommandBuffer, &barrierTexInfo);
+	
+	std::vector<VkBufferImageCopy> copyRegions;
+	for (uint32_t j = 0; j < texture->numLevels; j++)
+	{
+		ktx_size_t mipOffset{ 0 };
+		KTX_error_code errorCodeStatus = ktxTexture_GetImageOffset(texture, j, 0, 0, &mipOffset);
+		
+		VkBufferImageCopy copyRegion
+		{
+			.bufferOffset = mipOffset,
+			.imageSubresource{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = j, .layerCount = 1},
+			.imageExtent{ .width = texture->baseWidth >> j, .height = texture->baseHeight >> j, .depth = 1}
+		};
+
+		copyRegions.push_back(copyRegion);
+	}
+
+	vkCmdCopyBufferToImage(tempCommandBuffer, 
+						   imgSrcBuffer, 
+						   m_Textures[0].image, 
+						   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 
+						   static_cast<uint32_t>(copyRegions.size()), 
+						   copyRegions.data());
+
+
+	VkImageMemoryBarrier2 barrierTexRead
+	{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
+		.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.newLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+		.image = m_Textures[0].image,
+		.subresourceRange = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = texture->numLevels, .layerCount = 1}
+	};
+
+	barrierTexInfo.pImageMemoryBarriers = &barrierTexRead;
+	vkCmdPipelineBarrier2(tempCommandBuffer, &barrierTexInfo);
+	Check(vkEndCommandBuffer(tempCommandBuffer), "Command Buffer Ended", "Failed to end command buffer!");
+
+	VkSubmitInfo oneTimeSubmitInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &tempCommandBuffer
+	};
+
+	//I am confused what to write in debug message.
+	Check(vkQueueSubmit(m_Queue, 1, &oneTimeSubmitInfo, fenceOneTime), "Submitted queue to fence", "Failed to submit queue to fence!");
+	Check(vkWaitForFences(m_LogicalDevice, 1, &fenceOneTime, VK_TRUE, UINT64_MAX), "Waiting for fences", "Failed to wait for fences!");
+
+	vkDestroyFence(m_LogicalDevice, fenceOneTime, nullptr);
+	vmaDestroyBuffer(m_Allocator, imgSrcBuffer, imgSrcAllocation);
+	
+	VkSamplerCreateInfo samplerCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		.magFilter = VK_FILTER_LINEAR,
+		.minFilter = VK_FILTER_LINEAR,
+		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+		.anisotropyEnable = VK_TRUE,
+		.maxAnisotropy = 8.0f,
+		.maxLod = (float)texture->numLevels
+	};
+
+	Check(vkCreateSampler(m_LogicalDevice, &samplerCreateInfo, nullptr, &m_Textures[0].sampler), 
+						  "Sampler for texture created", 
+						  "Sampler's creation for texture failed");
+
+	
+	ktxTexture_Destroy(texture);
+
+	m_TextureDescriptors.clear();
+
+	VkDescriptorImageInfo descriptorImageInfo
+	{
+		.sampler = m_Textures[0].sampler,
+		.imageView = m_Textures[0].view,
+		.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL
+	};
+
+	m_TextureDescriptors.push_back(descriptorImageInfo);
+
+	VkDescriptorBindingFlags descVariableFlag
+	{
+		VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
+	};
+
+	VkDescriptorSetLayoutBindingFlagsCreateInfo descBindingFlags
+	{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+		.bindingCount = 1,
+		.pBindingFlags = &descVariableFlag
+	};
+
+	VkDescriptorSetLayoutBinding descLayoutBindingTexture
+	{
+		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.descriptorCount = static_cast<uint32_t>(m_Textures.size()),
+		.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
+	};
+
+	VkDescriptorSetLayoutCreateInfo descLayoutTexCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.pNext = &descBindingFlags,
+		.bindingCount = 1,
+		.pBindings = &descLayoutBindingTexture
+	};
+
+	Check(vkCreateDescriptorSetLayout(m_LogicalDevice, &descLayoutTexCreateInfo, nullptr, &m_DescriptorSetLayoutTex), 
+										"Setting descriptor layout for texture successful", 
+										"Setting descriptor layout for texture failed!");
+
+	VkDescriptorPoolSize poolSize
+	{
+		.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.descriptorCount = static_cast<uint32_t>(m_Textures.size())
+	};
+
+	VkDescriptorPoolCreateInfo poolCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+		.maxSets = 1,
+		.poolSizeCount = 1,
+		.pPoolSizes = &poolSize
+	};
+
+	Check(vkCreateDescriptorPool(m_LogicalDevice, &poolCreateInfo, nullptr, &m_DescriptorPool), 
+								 "Descriptor pool for texture created successfully", 
+								 "Failed to create descriptor pool for texture failed!");
+
+	uint32_t variableDescCount = static_cast<uint32_t>(m_Textures.size());
+
+	VkDescriptorSetVariableDescriptorCountAllocateInfo variableDescCountAllocateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT,
+		.descriptorSetCount = 1,
+		.pDescriptorCounts = &variableDescCount
+	};
+
+	VkDescriptorSetAllocateInfo texDescSetAlloc
+	{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		.pNext = &variableDescCountAllocateInfo,
+		.descriptorPool = m_DescriptorPool,
+		.descriptorSetCount = 1,
+		.pSetLayouts = &m_DescriptorSetLayoutTex
+	};
+
+	Check(vkAllocateDescriptorSets(m_LogicalDevice, &texDescSetAlloc, &m_DescriptorSetTex),
+		"Allocated Descriptor set for texture",
+		"Allocation of descriptor set for textures failed!");
+
+
+	VkWriteDescriptorSet writeDescSet
+	{
+		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		.dstSet = m_DescriptorSetTex,
+		.dstBinding = 0,
+		.descriptorCount = static_cast<uint32_t>(m_TextureDescriptors.size()),
+		.pImageInfo = m_TextureDescriptors.data()
+	};
+
+	vkUpdateDescriptorSets(m_LogicalDevice, 1, &writeDescSet, 0, nullptr);
 }
+
+void MyTriangle::LoadShaders()
+{
+	Slang::ComPtr<slang::IGlobalSession> globalSession;
+	SlangGlobalSessionDesc desc = {};
+	slang::createGlobalSession(&desc, globalSession.writeRef());
+
+	auto slangTargets{ std::to_array<slang::TargetDesc>
+	(
+		{
+			{
+				.format{SLANG_SPIRV},
+				.profile{globalSession->findProfile("spirv_1_4")}
+			}
+		}
+	)};
+
+	auto slangOptions{ std::to_array<slang::CompilerOptionEntry>
+	(
+		{
+			{
+				slang::CompilerOptionName::EmitSpirvDirectly,
+				{
+					slang::CompilerOptionValueKind::Int, 1
+				}
+			}
+		}
+	)};
+
+	slang::SessionDesc slangSessionDesc
+	{
+		.targets{slangTargets.data()},
+		.targetCount{SlangInt{slangTargets.size()}},
+		.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR,
+		.compilerOptionEntries{ slangOptions.data()},
+		.compilerOptionEntryCount{ uint32_t(slangOptions.size())}
+	};
+
+	Slang::ComPtr<slang::ISession> slangSession;
+	globalSession->createSession(slangSessionDesc, slangSession.writeRef());
+
+	Slang::ComPtr<slang::IModule> slangModule
+	{
+		slangSession->loadModuleFromSource("triangle", "bin/Debug/assets/shader.slang", nullptr, nullptr)
+	};
+
+	Slang::ComPtr<ISlangBlob> spirv;
+	slangModule->getTargetCode(0, spirv.writeRef());
+
+	VkShaderModuleCreateInfo shaderModuleCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+		.codeSize = spirv->getBufferSize(),
+		.pCode = (uint32_t*)spirv->getBufferPointer()
+	};
+
+	
+	Check(vkCreateShaderModule(m_LogicalDevice, &shaderModuleCreateInfo, nullptr, &m_ShaderModule), "Created Shader Module Successfully", "Creation of shader module failed!!");
+}
+
+void MyTriangle::SetupGraphicsPipeline()
+{
+	VkPushConstantRange pushConstantRange
+	{
+		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+		.size = sizeof(VkDeviceAddress)
+	};
+
+	VkPipelineLayoutCreateInfo pipelineCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		.setLayoutCount = 1,
+		.pSetLayouts = &m_DescriptorSetLayoutTex,
+		.pushConstantRangeCount = 1,
+		.pPushConstantRanges = &pushConstantRange
+	};
+
+	Check(vkCreatePipelineLayout(m_LogicalDevice, &pipelineCreateInfo, nullptr, &m_PipelineLayout), "Created Pipeline Layout successfully.", "Pipeline layout creation failed!");
+
+	VkVertexInputBindingDescription vertexBinding
+	{
+		.binding = 0,
+		.stride = sizeof(Vertex),
+		.inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+	};
+
+	std::vector<VkVertexInputAttributeDescription> vertexAttributes
+	{
+		{ .location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT},
+		{ .location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Vertex, normal)},
+		{ .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Vertex, uv)}
+	};
+
+	VkPipelineVertexInputStateCreateInfo vertexInputState
+	{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+		.vertexBindingDescriptionCount = 1,
+		.pVertexBindingDescriptions = &vertexBinding,
+		.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexAttributes.size()),
+		.pVertexAttributeDescriptions = vertexAttributes.data()
+	};
+
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState
+	{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+	};
+
+	std::vector<VkPipelineShaderStageCreateInfo> shaderStages
+	{
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.stage = VK_SHADER_STAGE_VERTEX_BIT,
+			.module = m_ShaderModule,
+			.pName = "main"
+		},
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+			.module = m_ShaderModule,
+			.pName = "main"
+		}
+	};
+
+	VkPipelineViewportStateCreateInfo viewportState
+	{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+		.viewportCount = 1,
+		.scissorCount = 1
+	};
+
+	std::vector<VkDynamicState> dynamicStates{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+	
+	VkPipelineDynamicStateCreateInfo dynamicState
+	{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+		.dynamicStateCount = 2,
+		.pDynamicStates = dynamicStates.data()
+	};
+
+	VkPipelineDepthStencilStateCreateInfo depthStencilState
+	{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+		.depthTestEnable = VK_TRUE,
+		.depthWriteEnable = VK_TRUE,
+		.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL
+	};
+
+	VkPipelineRenderingCreateInfo renderingCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+		.colorAttachmentCount = 1,
+		.pColorAttachmentFormats = &m_ImageFormat,
+		.depthAttachmentFormat = m_DepthFormat
+	};
+
+	
+}
+
+
+
+
+
+
 
 

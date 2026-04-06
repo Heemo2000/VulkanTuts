@@ -37,7 +37,7 @@ struct ShaderData
 {
 	glm::mat4 projection;
 	glm::mat4 view;
-	glm::mat4 model[3];
+	glm::mat4 model;
 	glm::vec4 lightPos{ 0.0f, -10.0f, 10.0f, 0.0f };
 	uint32_t selected{1};
 };
@@ -77,6 +77,9 @@ class MyTriangle
 		void CreateFencesAndSemaphores();
 		void CreateCommandPoolAndCommandBuffers();
 		void LoadTexture();
+		void LoadShaders();
+		void SetupGraphicsPipeline();
+
 	private:
 		GLFWwindow* m_Window = nullptr;
 		std::string m_WindowTitle;
@@ -99,6 +102,8 @@ class MyTriangle
 		VkSwapchainKHR m_Swapchain;
 		std::vector<VkImage> m_SwapchainImages;
 		std::vector<VkImageView> m_SwapchainImageViews;
+		VkFormat m_ImageFormat = VK_FORMAT_UNDEFINED;
+		VkFormat m_DepthFormat = VK_FORMAT_UNDEFINED;
 		VkImage m_DepthImage;
 		VmaAllocation m_DepthImageAllocation{ VK_NULL_HANDLE };
 		VkImageView m_DepthImageView;
@@ -112,4 +117,10 @@ class MyTriangle
 		std::vector<VkSemaphore> m_RenderSemaphores;
 		VkCommandPool m_CommandPool;
 		std::array<Texture, 1> m_Textures{};
+		std::vector<VkDescriptorImageInfo> m_TextureDescriptors;
+		VkDescriptorSetLayout m_DescriptorSetLayoutTex{ VK_NULL_HANDLE };
+		VkDescriptorPool m_DescriptorPool{ VK_NULL_HANDLE };
+		VkDescriptorSet m_DescriptorSetTex{ VK_NULL_HANDLE };
+		VkShaderModule m_ShaderModule{};
+		VkPipelineLayout m_PipelineLayout{ VK_NULL_HANDLE };
 };
