@@ -20,7 +20,6 @@ struct VSOutput {
     float3 Factor;
     float3 LightVec;
     float3 ViewVec;
-    uint32_t InstanceIndex;
 };
 
 [shader("vertex")]

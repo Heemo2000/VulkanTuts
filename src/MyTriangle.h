@@ -29,6 +29,7 @@ struct ShaderDataBuffer
 {
 	VmaAllocation allocation = VK_NULL_HANDLE;
 	VkBuffer buffer = VK_NULL_HANDLE;
+	VmaAllocationInfo allocationInfo{};
 	VkDeviceAddress deviceAddress{};
 	void* mapped = nullptr;
 };
@@ -39,7 +40,6 @@ struct ShaderData
 	glm::mat4 view;
 	glm::mat4 model;
 	glm::vec4 lightPos{ 0.0f, -10.0f, 10.0f, 0.0f };
-	uint32_t selected{1};
 };
 
 struct Texture
@@ -56,7 +56,13 @@ class MyTriangle
 		MyTriangle(std::string windowTitle, uint32_t width, uint32_t height);
 		void Setup();
 		void Run();
+		void Cleanup();
 
+	public:
+		void SetUpdateSwapchainTrue();
+		void RotateX(float moveInputX);
+		void RotateY(float moveInputY);
+	
 	private:
 		void InitWindow();
 		void InitVulkan();
@@ -64,6 +70,8 @@ class MyTriangle
 	private:
 		void SetResolution(uint32_t width, uint32_t height);
 		bool Check(VkResult condition, std::string trueStatus, std::string falseStatus);
+		bool Check(VkResult condition);
+		bool CheckSwapchain(VkResult condition);
 
 	private:
 		void CreateInstance();
@@ -99,11 +107,14 @@ class MyTriangle
 		VmaAllocator m_Allocator;
 		VkSurfaceKHR m_Surface;
 		VkSurfaceCapabilitiesKHR m_SurfaceCapabilities{};
+		VkSwapchainCreateInfoKHR m_SwapchainCreateInfo;
 		VkSwapchainKHR m_Swapchain;
 		std::vector<VkImage> m_SwapchainImages;
+		uint32_t m_ImagesCount = 0;
 		std::vector<VkImageView> m_SwapchainImageViews;
 		VkFormat m_ImageFormat = VK_FORMAT_UNDEFINED;
 		VkFormat m_DepthFormat = VK_FORMAT_UNDEFINED;
+		VkImageCreateInfo m_DepthImageCreateInfo;
 		VkImage m_DepthImage;
 		VmaAllocation m_DepthImageAllocation{ VK_NULL_HANDLE };
 		VkImageView m_DepthImageView;
@@ -123,4 +134,19 @@ class MyTriangle
 		VkDescriptorSet m_DescriptorSetTex{ VK_NULL_HANDLE };
 		VkShaderModule m_ShaderModule{};
 		VkPipelineLayout m_PipelineLayout{ VK_NULL_HANDLE };
+		VkPipeline m_GraphicsPipeline{ VK_NULL_HANDLE };
+
+		uint32_t m_FrameIndex = 0;
+		uint32_t m_ImageIndex = 0;
+		bool m_UpdateSwapchain = false;
+		ShaderData m_ShaderData{};
+		glm::vec3 m_CamPos{ 0.0f, 0.0f, -6.0f };
+		glm::vec3 m_ObjectRotation{ 0.0f, 0.0f, 0.0f };
+		glm::vec4 m_ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
+		VkDeviceSize m_VertexBufferSize{0};
+		VkDeviceSize m_IndexBufferSize{ 0 };
+		VkDeviceSize m_IndexCount{ 0 };
+		float m_DeltaTime = 0.0f;
+
+		glm::vec2 m_MovementSpeed{ 30.0f, 30.0f };
 };

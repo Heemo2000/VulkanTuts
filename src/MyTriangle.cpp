@@ -3,6 +3,9 @@
 #include <stddef.h>
 #include <slang.h>
 #include <slang-com-ptr.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 MyTriangle::MyTriangle(std::string windowTitle, uint32_t width, uint32_t height) : 
 			m_WindowTitle(windowTitle),
@@ -18,10 +21,289 @@ void MyTriangle::Setup()
 
 void MyTriangle::Run()
 {
+	m_FrameIndex = 0;
+	glm::vec3 instancePos = glm::vec3(3.0f, 0.0f, 0.0f);
+	float lastTime = glfwGetTime();
 	while (!glfwWindowShouldClose(m_Window))
 	{
 		glfwPollEvents();
+
+		Check(vkWaitForFences(m_LogicalDevice, 1, &m_Fences[m_FrameIndex], true, UINT64_MAX));
+		Check(vkResetFences(m_LogicalDevice, 1, &m_Fences[m_FrameIndex]));
+
+		CheckSwapchain(vkAcquireNextImageKHR(m_LogicalDevice, m_Swapchain, UINT64_MAX, m_PresentSemaphores[m_FrameIndex], VK_NULL_HANDLE, &m_ImageIndex));
+
+		m_ShaderData.projection = glm::perspective(glm::radians(60.0f), (float)m_Width / (float)m_Height, 0.1f, 32.0f);
+		m_ShaderData.view = glm::translate(glm::mat4(1.0f), m_CamPos);
+		m_ShaderData.model = glm::translate(glm::mat4(1.0f), instancePos) * glm::mat4_cast(glm::quat(m_ObjectRotation));
+
+		memcpy(m_ShaderDataBuffers[m_FrameIndex].allocationInfo.pMappedData, &m_ShaderData, sizeof(ShaderData));
+
+		VkCommandBuffer commandBuffer = m_CommandBuffers[m_FrameIndex];
+
+		Check(vkResetCommandBuffer(commandBuffer, 0));
+
+		VkCommandBufferBeginInfo beginInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+		};
+
+		Check(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+
+		std::array<VkImageMemoryBarrier2, 2> outputBarriers
+		{
+			VkImageMemoryBarrier2
+			{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+				.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+				.srcAccessMask = 0,
+				.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+				.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+				.newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+				.image = m_SwapchainImages[m_ImageIndex],
+				.subresourceRange { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}
+			},
+
+			VkImageMemoryBarrier2
+			{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+				.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+				.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+				.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+				.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+				.newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+				.image = m_DepthImage,
+				.subresourceRange { .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, .levelCount = 1, .layerCount = 1}
+			}
+		};
+
+		VkDependencyInfo barrierDependencyInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+			.imageMemoryBarrierCount = 2,
+			.pImageMemoryBarriers = outputBarriers.data()
+		};
+
+		vkCmdPipelineBarrier2(commandBuffer, &barrierDependencyInfo);
+
+		VkRenderingAttachmentInfo colorAttachmentInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+			.imageView = m_SwapchainImageViews[m_ImageIndex],
+			.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+			.clearValue { .color { m_ClearColor.r, m_ClearColor.g, m_ClearColor.b, m_ClearColor.a}}
+		};
+
+		VkRenderingAttachmentInfo depthAttachmentInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+			.imageView = m_DepthImageView,
+			.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			.clearValue { .depthStencil {1.0f, 0}}
+		};
+
+
+		int width = 0.0f;
+		int height = 0.0f;
+		glfwGetWindowSize(m_Window, &width, &height);
+		VkRenderingInfo renderingInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+			.renderArea = {.extent { .width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(height)}},
+			.layerCount = 1,
+			.colorAttachmentCount = 1,
+			.pColorAttachments = &colorAttachmentInfo,
+			.pDepthAttachment = &depthAttachmentInfo
+		};
+
+		vkCmdBeginRendering(commandBuffer, &renderingInfo);
+
+		VkViewport viewport
+		{
+			.width = static_cast<float>(m_Width),
+			.height = static_cast<float>(m_Height),
+			.minDepth = 0.0f,
+			.maxDepth = 1.0f
+		};
+
+		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+		VkRect2D scissor{ .extent {.width = m_Width, .height = m_Height} };
+		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
+
+		VkDeviceSize vOffset{ 0 };
+
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_DescriptorSetTex, 0, nullptr);
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_Buffer, &vOffset);
+
+		vkCmdBindIndexBuffer(commandBuffer, m_Buffer, m_VertexBufferSize, VK_INDEX_TYPE_UINT16);
+
+		vkCmdPushConstants(commandBuffer, m_PipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VkDeviceAddress), &m_ShaderDataBuffers[m_FrameIndex].deviceAddress);
+
+		vkCmdDrawIndexed(commandBuffer, m_IndexCount, 1, 0, 0, 0);
+
+		vkCmdEndRendering(commandBuffer);
+
+		VkImageMemoryBarrier2 barrierPresent
+		{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+			.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.dstAccessMask = 0,
+			.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			.image = m_SwapchainImages[m_ImageIndex],
+			.subresourceRange { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1,.layerCount = 1}
+		};
+
+		vkEndCommandBuffer(commandBuffer);
+
+		VkPipelineStageFlags waitStages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+		VkSubmitInfo submitInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &m_PresentSemaphores[m_FrameIndex],
+			.pWaitDstStageMask = &waitStages,
+			.commandBufferCount = 1,
+			.pCommandBuffers = &commandBuffer,
+			.signalSemaphoreCount = 1,
+			.pSignalSemaphores = &m_RenderSemaphores[m_ImageIndex]
+		};
+
+		Check(vkQueueSubmit(m_Queue, 1, &submitInfo, m_Fences[m_FrameIndex]));
+
+		m_FrameIndex = (m_FrameIndex + 1) % s_MaxFramesInFlight;
+
+		VkPresentInfoKHR presentInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &m_RenderSemaphores[m_ImageIndex],
+			.swapchainCount = 1,
+			.pSwapchains = &m_Swapchain,
+			.pImageIndices = &m_ImageIndex
+		};
+
+		CheckSwapchain(vkQueuePresentKHR(m_Queue, &presentInfo));
+
+		m_DeltaTime = glfwGetTime() - lastTime;
+		lastTime = glfwGetTime();
+
+		if (m_UpdateSwapchain == true)
+		{
+			m_UpdateSwapchain = false;
+			vkDeviceWaitIdle(m_LogicalDevice);
+			Check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_PhysicalDevices[m_RequiredPhyDeviceIndex], m_Surface, &m_SurfaceCapabilities));
+			m_SwapchainCreateInfo.oldSwapchain = m_Swapchain;
+			m_SwapchainCreateInfo.imageExtent = { .width = m_Width, .height = m_Height };
+
+			Check(vkCreateSwapchainKHR(m_LogicalDevice, &m_SwapchainCreateInfo, nullptr, &m_Swapchain));
+
+			for (auto i = 0; i < m_ImagesCount; i++)
+			{
+				VkImageViewCreateInfo viewCreateInfo
+				{
+					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+					.image = m_SwapchainImages[i],
+					.viewType = VK_IMAGE_VIEW_TYPE_2D,
+					.format = m_ImageFormat,
+					.subresourceRange { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}
+				};
+
+				Check(vkCreateImageView(m_LogicalDevice, &viewCreateInfo, nullptr, &m_SwapchainImageViews[i]));
+			}
+
+			vkDestroySwapchainKHR(m_LogicalDevice, m_SwapchainCreateInfo.oldSwapchain, nullptr);
+			vmaDestroyImage(m_Allocator, m_DepthImage, m_DepthImageAllocation);
+			vkDestroyImageView(m_LogicalDevice, m_DepthImageView, nullptr);
+			m_DepthImageCreateInfo.extent = { .width = m_Width, .height = m_Height, .depth = 1 };
+
+			VmaAllocationCreateInfo allocationCreateInfo
+			{
+				.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
+				.usage = VMA_MEMORY_USAGE_AUTO
+			};
+
+			Check(vmaCreateImage(m_Allocator, &m_DepthImageCreateInfo, &allocationCreateInfo, &m_DepthImage, &m_DepthImageAllocation, nullptr));
+
+			VkImageViewCreateInfo viewCreateInfo
+			{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.image = m_DepthImage,
+				.viewType = VK_IMAGE_VIEW_TYPE_2D,
+				.format = m_DepthFormat,
+				.subresourceRange { .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1}
+			};
+
+			Check(vkCreateImageView(m_LogicalDevice, &viewCreateInfo, nullptr, &m_DepthImageView));
+		}
+
 	}
+}
+
+void MyTriangle::Cleanup()
+{
+	Check(vkDeviceWaitIdle(m_LogicalDevice));
+	for (int i = 0; i < s_MaxFramesInFlight; i++)
+	{
+		vkDestroyFence(m_LogicalDevice, m_Fences[i], nullptr);
+		vkDestroySemaphore(m_LogicalDevice, m_PresentSemaphores[i], nullptr);
+		vmaUnmapMemory(m_Allocator, m_ShaderDataBuffers[i].allocation);
+		vmaDestroyBuffer(m_Allocator, m_ShaderDataBuffers[i].buffer, m_ShaderDataBuffers[i].allocation);
+	}
+
+	for (int i = 0; i < m_RenderSemaphores.size(); i++)
+	{
+		vkDestroySemaphore(m_LogicalDevice, m_RenderSemaphores[i], nullptr);
+	}
+
+	vmaDestroyBuffer(m_Allocator, m_Buffer, m_VertexBufferAllocation);
+
+	for (int i = 0; i < m_Textures.size(); i++)
+	{
+		vkDestroyImageView(m_LogicalDevice, m_Textures[i].view, nullptr);
+		vkDestroySampler(m_LogicalDevice, m_Textures[i].sampler, nullptr);
+		vmaDestroyImage(m_Allocator, m_Textures[i].image, m_Textures[i].allocation);
+	}
+
+	vkDestroyDescriptorSetLayout(m_LogicalDevice, m_DescriptorSetLayoutTex, nullptr);
+	vkDestroyDescriptorPool(m_LogicalDevice, m_DescriptorPool, nullptr);
+	vkDestroyPipelineLayout(m_LogicalDevice, m_PipelineLayout, nullptr);
+	vkDestroyPipeline(m_LogicalDevice, m_GraphicsPipeline, nullptr);
+	vkDestroySwapchainKHR(m_LogicalDevice, m_Swapchain, nullptr);
+	vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
+	vkDestroyCommandPool(m_LogicalDevice, m_CommandPool, nullptr);
+	vkDestroyShaderModule(m_LogicalDevice, m_ShaderModule, nullptr);
+	vmaDestroyAllocator(m_Allocator);
+	vkDestroyDevice(m_LogicalDevice, nullptr);
+	vkDestroyInstance(m_Instance, nullptr);
+	glfwDestroyWindow(m_Window);
+}
+
+void MyTriangle::SetUpdateSwapchainTrue()
+{
+	m_UpdateSwapchain = true;
+}
+
+void MyTriangle::RotateX(float moveInputX)
+{
+	m_ObjectRotation.y += moveInputX * m_MovementSpeed.y * m_DeltaTime;
+}
+
+void MyTriangle::RotateY(float moveInputY)
+{
+	m_ObjectRotation.x += moveInputY * m_MovementSpeed.x * m_DeltaTime;
 }
 
 void MyTriangle::InitWindow()
@@ -49,7 +331,32 @@ void MyTriangle::InitWindow()
 		{
 			auto app = reinterpret_cast<MyTriangle*>(glfwGetWindowUserPointer(window));
 			app->SetResolution(width, height);
+			app->SetUpdateSwapchainTrue();
 		});
+
+	glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scanCode, int action, int mods)
+	{
+		auto app = reinterpret_cast<MyTriangle*>(glfwGetWindowUserPointer(window));
+		
+		if (key == GLFW_KEY_W)
+		{
+			app->RotateY(1.0f);
+		}
+		else if(key == GLFW_KEY_S)
+		{
+			app->RotateY(-1.0f);
+		}
+
+		if (key == GLFW_KEY_A)
+		{
+			app->RotateX(-1.0f);
+		}
+		else if (key == GLFW_KEY_D)
+		{
+			app->RotateX(1.0f);
+		}
+	});
+
 
 	if (!m_Window)
 	{
@@ -95,6 +402,35 @@ bool MyTriangle::Check(VkResult condition, std::string trueStatus, std::string f
 
 	std::cout << std::endl;
 	std::cout << trueStatus << std::endl;
+	return true;
+}
+
+bool MyTriangle::Check(VkResult condition)
+{
+	if (condition != VK_SUCCESS)
+	{
+		exit(1);
+		return false;
+	}
+
+	return true;
+}
+
+bool MyTriangle::CheckSwapchain(VkResult condition)
+{
+	if (condition < VK_SUCCESS)
+	{
+		if (condition == VK_ERROR_OUT_OF_DATE_KHR)
+		{
+			m_UpdateSwapchain = true;
+			return true;
+		}
+
+		std::cout << "Vulkan call return an error: " << condition << std::endl;
+		exit(condition);
+		return false;
+	}
+
 	return true;
 }
 
@@ -273,7 +609,7 @@ void MyTriangle::CreateSurface()
 void MyTriangle::CreateSwapchainAndImageViews()
 {
 	m_ImageFormat =  VK_FORMAT_B8G8R8A8_SRGB;
-	VkSwapchainCreateInfoKHR swapchainCreateInfo
+	m_SwapchainCreateInfo =
 	{
 		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
 		.surface = m_Surface,
@@ -288,18 +624,18 @@ void MyTriangle::CreateSwapchainAndImageViews()
 		.presentMode = VK_PRESENT_MODE_FIFO_KHR
 	};
 
-	Check(vkCreateSwapchainKHR(m_LogicalDevice, &swapchainCreateInfo, nullptr, &m_Swapchain), "Swapchain creation successful", "Swapchain creation failed!");
+	Check(vkCreateSwapchainKHR(m_LogicalDevice, &m_SwapchainCreateInfo, nullptr, &m_Swapchain), "Swapchain creation successful", "Swapchain creation failed!");
 
-	uint32_t imagesCount = 0;
-	Check(vkGetSwapchainImagesKHR(m_LogicalDevice, m_Swapchain, &imagesCount, nullptr), "Getting swapchain images count successful", "Getting swapchain images count failed!");
+	m_ImagesCount = 0;
+	Check(vkGetSwapchainImagesKHR(m_LogicalDevice, m_Swapchain, &m_ImagesCount, nullptr), "Getting swapchain images count successful", "Getting swapchain images count failed!");
 	
-	m_SwapchainImages.resize(imagesCount);
+	m_SwapchainImages.resize(m_ImagesCount);
 
-	Check(vkGetSwapchainImagesKHR(m_LogicalDevice, m_Swapchain, &imagesCount, m_SwapchainImages.data()), "Getting swapchain images successful", "Getting swapchain images failed!");
+	Check(vkGetSwapchainImagesKHR(m_LogicalDevice, m_Swapchain, &m_ImagesCount, m_SwapchainImages.data()), "Getting swapchain images successful", "Getting swapchain images failed!");
 	
-	m_SwapchainImageViews.resize(imagesCount);
+	m_SwapchainImageViews.resize(m_ImagesCount);
 
-	for (int i = 0; i < imagesCount; i++)
+	for (int i = 0; i < m_ImagesCount; i++)
 	{
 		VkImageViewCreateInfo imageViewCreateInfo
 		{
@@ -348,7 +684,7 @@ void MyTriangle::CheckDepthFormatAndCreateDepthImage()
 	std::cout << std::endl;
 	std::cout << "Found required depth format for GPU at index: " << m_RequiredPhyDeviceIndex << std::endl;
 
-	VkImageCreateInfo depthImageCreateInfo
+	m_DepthImageCreateInfo = 
 	{
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		.imageType = VK_IMAGE_TYPE_2D,
@@ -370,7 +706,7 @@ void MyTriangle::CheckDepthFormatAndCreateDepthImage()
 
 
 	Check(vmaCreateImage(m_Allocator,
-		&depthImageCreateInfo,
+		&m_DepthImageCreateInfo,
 		&allocationCreateInfo,
 		&m_DepthImage,
 		&m_DepthImageAllocation,
@@ -415,7 +751,7 @@ void MyTriangle::LoadModelRelatedDataAndShaderRelatedStuff()
 	std::cout << std::endl;
 	std::cout << "Model loading successful" << std::endl;
 
-	const VkDeviceSize indexCount{ shapes[0].mesh.indices.size() };
+	m_IndexCount = { shapes[0].mesh.indices.size() };
 
 	std::vector<Vertex> vertices;
 	std::vector<uint16_t> indices;
@@ -433,13 +769,13 @@ void MyTriangle::LoadModelRelatedDataAndShaderRelatedStuff()
 		indices.push_back(indices.size());
 	}
 
-	VkDeviceSize vertexBufferSize{ sizeof(Vertex) * vertices.size() };
-	VkDeviceSize indexBufferSize{ sizeof(uint16_t) * indices.size() };
+	m_VertexBufferSize = { sizeof(Vertex) * vertices.size() };
+	m_IndexBufferSize = { sizeof(uint16_t) * indices.size() };
 
 	VkBufferCreateInfo bufferCreateInfo
 	{
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.size = vertexBufferSize + indexBufferSize,
+		.size = m_VertexBufferSize + m_IndexBufferSize,
 		.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
 	};
 
@@ -462,8 +798,8 @@ void MyTriangle::LoadModelRelatedDataAndShaderRelatedStuff()
 		"Mapping memory to buffer successful",
 		"Mapping memory to buffer ptr failed!!"))
 	{
-		memcpy(m_BufferPtr, vertices.data(), vertexBufferSize);
-		memcpy(((char*)m_BufferPtr) + vertexBufferSize, indices.data(), indexBufferSize);
+		memcpy(m_BufferPtr, vertices.data(), m_VertexBufferSize);
+		memcpy(((char*)m_BufferPtr) + m_VertexBufferSize, indices.data(), m_IndexBufferSize);
 		vmaUnmapMemory(m_Allocator, m_VertexBufferAllocation);
 
 		for (uint32_t i = 0; i < s_MaxFramesInFlight; i++)
@@ -489,7 +825,7 @@ void MyTriangle::LoadModelRelatedDataAndShaderRelatedStuff()
 				&uniformBufferAllocateCreateInfo,
 				&m_ShaderDataBuffers[i].buffer,
 				&m_ShaderDataBuffers[i].allocation,
-				nullptr),
+				&m_ShaderDataBuffers[i].allocationInfo),
 				"Initializing buffer and allocation for shader data buffer at index" + std::to_string(i) + " successful",
 				"Initializing buffer and allocation for shader data buffer at index " + std::to_string(i) + " failed!!");
 
@@ -943,7 +1279,7 @@ void MyTriangle::SetupGraphicsPipeline()
 		.size = sizeof(VkDeviceAddress)
 	};
 
-	VkPipelineLayoutCreateInfo pipelineCreateInfo
+	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo
 	{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		.setLayoutCount = 1,
@@ -952,7 +1288,7 @@ void MyTriangle::SetupGraphicsPipeline()
 		.pPushConstantRanges = &pushConstantRange
 	};
 
-	Check(vkCreatePipelineLayout(m_LogicalDevice, &pipelineCreateInfo, nullptr, &m_PipelineLayout), "Created Pipeline Layout successfully.", "Pipeline layout creation failed!");
+	Check(vkCreatePipelineLayout(m_LogicalDevice, &pipelineLayoutCreateInfo, nullptr, &m_PipelineLayout), "Created Pipeline Layout successfully.", "Pipeline layout creation failed!");
 
 	VkVertexInputBindingDescription vertexBinding
 	{
@@ -1031,7 +1367,48 @@ void MyTriangle::SetupGraphicsPipeline()
 		.depthAttachmentFormat = m_DepthFormat
 	};
 
-	
+	VkPipelineColorBlendAttachmentState blendAttachment
+	{
+		.colorWriteMask = 0xF
+	};
+
+	VkPipelineColorBlendStateCreateInfo colorBlendState
+	{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+		.attachmentCount = 1,
+		.pAttachments = &blendAttachment
+	};
+
+	VkPipelineRasterizationStateCreateInfo rasterizationState
+	{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+		.lineWidth = 1.0f
+	};
+
+	VkPipelineMultisampleStateCreateInfo multisampleState
+	{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT
+	};
+
+	VkGraphicsPipelineCreateInfo pipelineCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+		.pNext = &renderingCreateInfo,
+		.stageCount = 2,
+		.pStages = shaderStages.data(),
+		.pVertexInputState = &vertexInputState,
+		.pInputAssemblyState = &inputAssemblyState,
+		.pViewportState = &viewportState,
+		.pRasterizationState = &rasterizationState,
+		.pMultisampleState = &multisampleState,
+		.pDepthStencilState = &depthStencilState,
+		.pColorBlendState = &colorBlendState,
+		.pDynamicState = &dynamicState,
+		.layout = m_PipelineLayout
+	};
+
+	Check(vkCreateGraphicsPipelines(m_LogicalDevice, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &m_GraphicsPipeline), "Graphics pipeline created.", "Graphics pipeline creation failed!");
 }
 
 
