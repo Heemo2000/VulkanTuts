@@ -140,7 +140,7 @@ class MyTriangle
 		uint32_t m_ImageIndex = 0;
 		bool m_UpdateSwapchain = false;
 		ShaderData m_ShaderData{};
-		glm::vec3 m_CamPos{ 0.0f, 0.0f, -6.0f };
+		glm::vec3 m_CamPos{ -4.0f, 0.0f, -6.0f };
 		glm::vec3 m_ObjectRotation{ 0.0f, 0.0f, 0.0f };
 		glm::vec4 m_ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
 		VkDeviceSize m_VertexBufferSize{0};

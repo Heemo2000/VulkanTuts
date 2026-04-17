@@ -33,7 +33,10 @@ void MyTriangle::Run()
 
 		CheckSwapchain(vkAcquireNextImageKHR(m_LogicalDevice, m_Swapchain, UINT64_MAX, m_PresentSemaphores[m_FrameIndex], VK_NULL_HANDLE, &m_ImageIndex));
 
-		m_ShaderData.projection = glm::perspective(glm::radians(60.0f), (float)m_Width / (float)m_Height, 0.1f, 32.0f);
+		if (m_Height != 0.0f)
+		{
+			m_ShaderData.projection = glm::perspective(glm::radians(60.0f), (float)m_Width / (float)m_Height, 0.1f, 32.0f);
+		}
 		m_ShaderData.view = glm::translate(glm::mat4(1.0f), m_CamPos);
 		m_ShaderData.model = glm::translate(glm::mat4(1.0f), instancePos) * glm::mat4_cast(glm::quat(m_ObjectRotation));
 
@@ -204,11 +207,24 @@ void MyTriangle::Run()
 		{
 			m_UpdateSwapchain = false;
 			vkDeviceWaitIdle(m_LogicalDevice);
+			
+			glfwGetWindowSize(m_Window, &width, &height);
+
 			Check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_PhysicalDevices[m_RequiredPhyDeviceIndex], m_Surface, &m_SurfaceCapabilities));
 			m_SwapchainCreateInfo.oldSwapchain = m_Swapchain;
-			m_SwapchainCreateInfo.imageExtent = { .width = m_Width, .height = m_Height };
+			m_SwapchainCreateInfo.imageExtent = { .width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(m_Height) };
 
 			Check(vkCreateSwapchainKHR(m_LogicalDevice, &m_SwapchainCreateInfo, nullptr, &m_Swapchain));
+
+			for (int i = 0; i < m_ImagesCount; i++)
+			{
+				vkDestroyImageView(m_LogicalDevice, m_SwapchainImageViews[i], nullptr);
+			}
+
+			Check(vkGetSwapchainImagesKHR(m_LogicalDevice, m_Swapchain, &m_ImagesCount, nullptr));
+			m_SwapchainImages.resize(m_ImagesCount);
+			Check(vkGetSwapchainImagesKHR(m_LogicalDevice, m_Swapchain, &m_ImagesCount, m_SwapchainImages.data()));
+			m_SwapchainImageViews.resize(m_ImagesCount);
 
 			for (auto i = 0; i < m_ImagesCount; i++)
 			{
@@ -266,6 +282,14 @@ void MyTriangle::Cleanup()
 	for (int i = 0; i < m_RenderSemaphores.size(); i++)
 	{
 		vkDestroySemaphore(m_LogicalDevice, m_RenderSemaphores[i], nullptr);
+	}
+
+	vmaDestroyImage(m_Allocator, m_DepthImage, m_DepthImageAllocation);
+	vkDestroyImageView(m_LogicalDevice, m_DepthImageView, nullptr);
+
+	for (int i = 0; i < m_SwapchainImageViews.size(); i++)
+	{
+		vkDestroyImageView(m_LogicalDevice, m_SwapchainImageViews[i], nullptr);
 	}
 
 	vmaDestroyBuffer(m_Allocator, m_Buffer, m_VertexBufferAllocation);
