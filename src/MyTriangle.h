@@ -50,6 +50,25 @@ struct Texture
 	VkSampler sampler{ VK_NULL_HANDLE };
 };
 
+
+VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+	VkDebugUtilsMessageTypeFlagsEXT type,
+	const VkDebugUtilsMessengerCallbackDataEXT* callbackData,
+	void* userData);
+
+VkResult CreateDebugUtilsMessengerEXT(
+	VkInstance instance,
+	const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
+	const VkAllocationCallbacks* pAllocator,
+	VkDebugUtilsMessengerEXT* pMessenger
+);
+
+void DestroyDebugUtilsMessengerEXT(
+	VkInstance instance,
+	VkDebugUtilsMessengerEXT messenger,
+	const VkAllocationCallbacks* pAllocator
+);
+
 class MyTriangle
 {
 	public:
@@ -89,6 +108,8 @@ class MyTriangle
 		void SetupGraphicsPipeline();
 
 	private:
+		bool CheckValidationLayersSupport();
+	private:
 		GLFWwindow* m_Window = nullptr;
 		std::string m_WindowTitle;
 		uint32_t m_Width;
@@ -96,7 +117,15 @@ class MyTriangle
 	
 	private:
 		static const uint32_t s_MaxFramesInFlight = 2;
-	
+
+	private:
+		VkDebugUtilsMessengerEXT m_DebugUtilsMessenger = VK_NULL_HANDLE;
+
+	private:
+		const std::vector<const char*> m_ValidationLayers = {
+			"VK_LAYER_KHRONOS_validation"
+		};
+
 	private:
 		VkInstance m_Instance = VK_NULL_HANDLE;
 		std::vector<VkPhysicalDevice> m_PhysicalDevices;

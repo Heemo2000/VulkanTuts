@@ -7,6 +7,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+
 MyTriangle::MyTriangle(std::string windowTitle, uint32_t width, uint32_t height) : 
 			m_WindowTitle(windowTitle),
 			m_Width(width),
@@ -130,8 +131,8 @@ void MyTriangle::Run()
 
 		VkViewport viewport
 		{
-			.width = static_cast<float>(m_Width),
-			.height = static_cast<float>(m_Height),
+			.width = static_cast<float>(width),
+			.height = static_cast<float>(height),
 			.minDepth = 0.0f,
 			.maxDepth = 1.0f
 		};
@@ -311,6 +312,9 @@ void MyTriangle::Cleanup()
 	vkDestroyShaderModule(m_LogicalDevice, m_ShaderModule, nullptr);
 	vmaDestroyAllocator(m_Allocator);
 	vkDestroyDevice(m_LogicalDevice, nullptr);
+
+	DestroyDebugUtilsMessengerEXT(m_Instance, m_DebugUtilsMessenger, nullptr);
+
 	vkDestroyInstance(m_Instance, nullptr);
 	glfwDestroyWindow(m_Window);
 }
@@ -460,26 +464,57 @@ bool MyTriangle::CheckSwapchain(VkResult condition)
 
 void MyTriangle::CreateInstance()
 {
+	if (!CheckValidationLayersSupport())
+	{
+		std::cout << "Validation layers requested but not availaible!";
+		return;
+	}
+
 	VkApplicationInfo appInfo
 	{
 		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
 		.pApplicationName = "Vulkan Tuts Engine",
+		.engineVersion = VK_MAKE_API_VERSION(0,1,0,0),
 		.apiVersion = VK_API_VERSION_1_3
+	};
+
+	const VkDebugUtilsMessengerCreateInfoEXT messengerCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+		.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+						   VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+						   VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+
+		.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+					   VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+					   VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+
+		.pfnUserCallback = DebugCallback,
+		.pUserData = this
 	};
 
 	uint32_t instanceExtensionsCount = 0;
 	const char** instanceExtensions = glfwGetRequiredInstanceExtensions(&instanceExtensionsCount);
+	
+	std::vector<const char*> extensions(instanceExtensions, instanceExtensions + instanceExtensionsCount);
+	extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+
+
 	VkInstanceCreateInfo instanceCreateInfo
 	{
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 		.pApplicationInfo = &appInfo,
-		.enabledExtensionCount = instanceExtensionsCount,
-		.ppEnabledExtensionNames = instanceExtensions
+
+		.enabledLayerCount = static_cast<uint32_t>(m_ValidationLayers.size()),
+		.ppEnabledLayerNames = m_ValidationLayers.data(),
+
+		.enabledExtensionCount = static_cast<uint32_t>(extensions.size()),
+		.ppEnabledExtensionNames = extensions.data(),
 	};
 
+	Check(vkCreateInstance(&instanceCreateInfo, nullptr, &m_Instance), "Instance creation successful", "Failed to create instance!!");
 
-
-	if (Check(vkCreateInstance(&instanceCreateInfo, nullptr, &m_Instance), "Instance creation successful", "Failed to create instance!!"));
+	Check(CreateDebugUtilsMessengerEXT(m_Instance, &messengerCreateInfo, nullptr, &m_DebugUtilsMessenger), "Debug Messenger Created", "Debug Messenger Creation Failed");
 }
 
 void MyTriangle::FindAndSelectPhysicalDevice()
@@ -511,7 +546,7 @@ void MyTriangle::FindAndSelectPhysicalDevice()
 		vkGetPhysicalDeviceProperties2(m_PhysicalDevices[i], &deviceProperties);
 		
 		if (deviceProperties.properties.deviceType &
-			(VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU | VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU))
+			(VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU))
 		{
 			m_RequiredPhyDeviceIndex = i;
 			break;
@@ -1435,10 +1470,75 @@ void MyTriangle::SetupGraphicsPipeline()
 	Check(vkCreateGraphicsPipelines(m_LogicalDevice, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &m_GraphicsPipeline), "Graphics pipeline created.", "Graphics pipeline creation failed!");
 }
 
+bool MyTriangle::CheckValidationLayersSupport()
+{
+	uint32_t layerCount;
+	vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
 
+	std::vector<VkLayerProperties> availaibleLayers(layerCount);
+	vkEnumerateInstanceLayerProperties(&layerCount, availaibleLayers.data());
 
+	for (const char* layerName : m_ValidationLayers)
+	{
+		bool layerFound = false;
 
+		for (const auto& layerProperties : availaibleLayers)
+		{
+			if (strcmp(layerName, layerProperties.layerName) == 0)
+			{
+				layerFound = true;
+				break;
+			}
+		}
 
+		if (!layerFound)
+		{
+			return false;
+		}
+	}
+	return true;
+}
 
+VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT type, const VkDebugUtilsMessengerCallbackDataEXT* callbackData, void* userData)
+{
+	const bool isError = (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0;
+	const bool isWarning = (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0;
 
+	if (isError)
+	{
+		std::cout << std::endl;
+		std::cout<< "Error: " << callbackData->pMessage << std::endl;
+		std::cout << std::endl;
+	}
 
+	if (isWarning)
+	{
+		std::cout << std::endl;
+		std::cout << "Warning: " << callbackData->pMessage << std::endl;
+		std::cout << std::endl;
+	}
+
+	return VK_FALSE;
+}
+
+VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pMessenger)
+{
+	auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+
+	if (func != nullptr)
+	{
+		return func(instance, pCreateInfo, pAllocator, pMessenger);
+	}
+
+	return VK_ERROR_EXTENSION_NOT_PRESENT;
+}
+
+void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT messenger, const VkAllocationCallbacks* pAllocator)
+{
+	auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+
+	if (func != nullptr)
+	{
+		func(instance, messenger, pAllocator);
+	}
+}
