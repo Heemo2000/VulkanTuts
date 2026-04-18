@@ -4,5 +4,5 @@
   font-size: 15px;
 }
 
-<p>This is the basic rendering application made using Vulkan 1.3 and Visual Studio 2022</p>
+<p class="above_desc">This is the basic rendering application made using Vulkan 1.3 and Visual Studio 2022</p>
 
