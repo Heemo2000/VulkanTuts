@@ -9,5 +9,5 @@
   <li>Install Visual Studio 2022 with C++ modules</li>
   <li>Install CMake 4.10</li>
   <li>Now, clone this repository at the path you desire and run this command: <code>cmake -B build</code></li>
-  <li>Now, enjoy.</li>
+  <li>Now, enjoy the application. You can control application by using WASD keys.</li>
 </ol>
