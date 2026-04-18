@@ -825,7 +825,7 @@ void MyTriangle::LoadModelRelatedDataAndShaderRelatedStuff()
 		{
 			.pos = { attrib.vertices[index.vertex_index * 3], -attrib.vertices[index.vertex_index * 3 + 1], attrib.vertices[index.vertex_index * 3 + 2]},
 			.normal = {attrib.normals[index.normal_index * 3], -attrib.normals[index.normal_index * 3 + 1], attrib.normals[index.normal_index * 3 + 2]},
-			.uv = {attrib.texcoords[index.texcoord_index * 2], 1.0f - attrib.normals[index.texcoord_index * 2 + 1]}
+			.uv = {attrib.texcoords[index.texcoord_index * 2], 1.0f - attrib.texcoords[index.texcoord_index * 2 + 1]}
 		};
 
 		vertices.push_back(vertex);
@@ -1093,7 +1093,7 @@ void MyTriangle::LoadTexture()
 		.srcAccessMask = VK_ACCESS_2_NONE,
 		.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
 		.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-		.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		.image = m_Textures[0].image,
 		.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = texture->numLevels, .layerCount = 1}
@@ -1139,7 +1139,7 @@ void MyTriangle::LoadTexture()
 		.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
 		.dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 		.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		.newLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+		.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		.image = m_Textures[0].image,
 		.subresourceRange = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = texture->numLevels, .layerCount = 1}
 	};
@@ -1186,7 +1186,7 @@ void MyTriangle::LoadTexture()
 	{
 		.sampler = m_Textures[0].sampler,
 		.imageView = m_Textures[0].view,
-		.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL
+		.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 	};
 
 	m_TextureDescriptors.push_back(descriptorImageInfo);
@@ -1269,6 +1269,7 @@ void MyTriangle::LoadTexture()
 		.dstSet = m_DescriptorSetTex,
 		.dstBinding = 0,
 		.descriptorCount = static_cast<uint32_t>(m_TextureDescriptors.size()),
+		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		.pImageInfo = m_TextureDescriptors.data()
 	};
 

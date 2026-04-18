@@ -29,7 +29,7 @@ VSOutput main(VSInput input, uniform ShaderData *shaderData, uint instanceIndex 
     output.Normal = mul((float3x3)mul(shaderData->view, modelMat), input.Normal);
     output.UV = input.UV;
     output.Pos = mul(shaderData->projection, mul(shaderData->view, mul(modelMat, float4(input.Pos.xyz, 1.0))));
-    output.Factor = 0.5f;
+    output.Factor = 5.0f;
     // Calculate view vectors required for lighting
     float4 fragPos = mul(mul(shaderData->view, modelMat), float4(input.Pos.xyz, 1.0));
     output.LightVec = shaderData->lightPos.xyz - fragPos.xyz;
