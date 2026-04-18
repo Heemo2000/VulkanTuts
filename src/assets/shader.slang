@@ -29,7 +29,7 @@ VSOutput main(VSInput input, uniform ShaderData *shaderData, uint instanceIndex 
     output.Normal = mul((float3x3)mul(shaderData->view, modelMat), input.Normal);
     output.UV = input.UV;
     output.Pos = mul(shaderData->projection, mul(shaderData->view, mul(modelMat, float4(input.Pos.xyz, 1.0))));
-    output.Factor = 1.0f;
+    output.Factor = 0.5f;
     // Calculate view vectors required for lighting
     float4 fragPos = mul(mul(shaderData->view, modelMat), float4(input.Pos.xyz, 1.0));
     output.LightVec = shaderData->lightPos.xyz - fragPos.xyz;
@@ -49,4 +49,5 @@ float4 main(VSOutput input) {
     // Sample from texture
     float3 color = textures[0].Sample(input.UV).rgb * input.Factor;
     return float4(diffuse * color.rgb + specular, 1.0);
+    //return float4(input.UV, 0.0, 1.0);
 }

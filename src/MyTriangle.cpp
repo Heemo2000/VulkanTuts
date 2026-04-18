@@ -114,13 +114,10 @@ void MyTriangle::Run()
 		};
 
 
-		int width = 0.0f;
-		int height = 0.0f;
-		glfwGetWindowSize(m_Window, &width, &height);
 		VkRenderingInfo renderingInfo
 		{
 			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-			.renderArea = {.extent { .width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(height)}},
+			.renderArea = {.extent { .width = m_SurfaceCapabilities.currentExtent.width, .height = m_SurfaceCapabilities.currentExtent.height }},
 			.layerCount = 1,
 			.colorAttachmentCount = 1,
 			.pColorAttachments = &colorAttachmentInfo,
@@ -131,14 +128,14 @@ void MyTriangle::Run()
 
 		VkViewport viewport
 		{
-			.width = static_cast<float>(width),
-			.height = static_cast<float>(height),
+			.width = static_cast<float>(m_Width),
+			.height = static_cast<float>(m_Height),
 			.minDepth = 0.0f,
 			.maxDepth = 1.0f
 		};
 
 		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-		VkRect2D scissor{ .extent {.width = m_Width, .height = m_Height} };
+		VkRect2D scissor{ .extent {.width = m_Width, .height = m_Height } };
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
@@ -209,11 +206,18 @@ void MyTriangle::Run()
 			m_UpdateSwapchain = false;
 			vkDeviceWaitIdle(m_LogicalDevice);
 			
-			glfwGetWindowSize(m_Window, &width, &height);
+			int width = 0.0f;
+			int height = 0.0f;
 
+			while (width == 0.0f || height == 0.0f)
+			{
+				glfwGetFramebufferSize(m_Window, &width, &height);
+				glfwWaitEvents();
+			}
+			
 			Check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_PhysicalDevices[m_RequiredPhyDeviceIndex], m_Surface, &m_SurfaceCapabilities));
 			m_SwapchainCreateInfo.oldSwapchain = m_Swapchain;
-			m_SwapchainCreateInfo.imageExtent = { .width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(m_Height) };
+			m_SwapchainCreateInfo.imageExtent = { .width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(height) };
 
 			Check(vkCreateSwapchainKHR(m_LogicalDevice, &m_SwapchainCreateInfo, nullptr, &m_Swapchain));
 
@@ -974,7 +978,7 @@ void MyTriangle::CreateCommandPoolAndCommandBuffers()
 void MyTriangle::LoadTexture()
 {
 	ktxTexture* texture{ nullptr };
-	std::string fileName = "bin/Debug/assets/christmas_lantern_tex_ktx.ktx";
+	std::string fileName = "bin/Debug/assets/christmas_lantern_tex_ktx_2.ktx";
 	
 	
 	ktx_error_code_e errorCode = ktxTexture_CreateFromNamedFile(
@@ -1089,7 +1093,7 @@ void MyTriangle::LoadTexture()
 		.srcAccessMask = VK_ACCESS_2_NONE,
 		.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
 		.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		.image = m_Textures[0].image,
 		.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = texture->numLevels, .layerCount = 1}

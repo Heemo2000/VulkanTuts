@@ -39,7 +39,7 @@ struct ShaderData
 	glm::mat4 projection;
 	glm::mat4 view;
 	glm::mat4 model;
-	glm::vec4 lightPos{ 0.0f, -10.0f, 10.0f, 0.0f };
+	glm::vec4 lightPos{ 0.0f, 0.0f, 10.0f, 0.0f };
 };
 
 struct Texture
