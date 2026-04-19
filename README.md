@@ -5,7 +5,7 @@
 
 <h2>How to run ?</h2>
 <ol>
-  <li>Install Vulkan SDK 1.4.309 . Make sure the SDK is added to the PATH.</li>
+  <li>Install Vulkan SDK 1.4.309 . Make sure the SDK is added to the PATH. Also install KTX-software and add it to the PATH.</li>
   <li>Install Visual Studio 2022 with C++ modules</li>
   <li>Install CMake 4.10</li>
   <li>Now, clone this repository at the path you desire and run this command: <code>cmake -B build</code></li>
